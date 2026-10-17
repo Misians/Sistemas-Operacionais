@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" role="img" aria-labelledby="title">
+  <title id="title">Ilustração de sistema operacional no navegador</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#7c2d12"/>
+      <stop offset="1" stop-color="#b91c1c"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="400" fill="url(#bg)"/>
+  <circle cx="690" cy="345" r="170" fill="#fff" opacity=".06"/>
+  <rect x="128" y="68" width="544" height="270" rx="28" fill="#fff7ed"/>
+  <path d="M128 96a28 28 0 0 1 28-28h488a28 28 0 0 1 28 28v34H128z" fill="#7f1d1d"/>
+  <circle cx="160" cy="101" r="6" fill="#fca5a5"/>
+  <circle cx="182" cy="101" r="6" fill="#fdba74"/>
+  <rect x="164" y="158" width="125" height="142" rx="14" fill="#ffedd5"/>
+  <circle cx="226" cy="207" r="29" fill="#ea580c"/>
+  <path d="M216 190v35l27-18z" fill="#fff7ed"/>
+  <text x="315" y="185" fill="#9a3412" font-family="Arial,sans-serif" font-size="16" font-weight="700">LINUX NO NAVEGADOR</text>
+  <text x="315" y="220" fill="#44403c" font-family="monospace" font-size="16">user@web:~$ uname -a</text>
+  <text x="315" y="250" fill="#57534e" font-family="monospace" font-size="14">Linux ... x86_64 GNU/Linux</text>
+  <rect x="315" y="272" width="11" height="20" rx="2" fill="#ea580c"/>
+  <text x="400" y="375" text-anchor="middle" fill="#fff7ed" font-family="Arial,sans-serif" font-size="20" font-weight="700">AMBIENTE VIRTUAL · EXPERIMENTAÇÃO</text>
+</svg>
