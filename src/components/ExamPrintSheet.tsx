@@ -88,6 +88,13 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
               hasNextSheet ? 'print-page-break-after' : ''
             } ${isVisibleOnScreen(version.index) ? 'block' : 'hidden print:block'}`}
           >
+            <table className="w-full border-collapse">
+              <thead className="hidden print:table-header-group">
+                <tr><td className="h-[12mm] p-0" /></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="p-0 print:px-[14mm]">
             {/* Official Concurso-style Header */}
             <header className="border-2 border-stone-900">
               <div className="flex flex-wrap items-stretch justify-between border-b-2 border-stone-900">
@@ -237,6 +244,13 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
               <span>SO Docente Hub · {config.discipline || t('Sistemas Operacionais')}</span>
               <span className="font-mono">{version.examCode}</span>
             </footer>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot className="hidden print:table-footer-group">
+                <tr><td className="h-[12mm] p-0" /></tr>
+              </tfoot>
+            </table>
           </article>
         );
       })}
@@ -248,6 +262,13 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
             isVisibleOnScreen('key') ? 'block' : 'hidden print:block'
           }`}
         >
+          <table className="w-full border-collapse">
+            <thead className="hidden print:table-header-group">
+              <tr><td className="h-[12mm] p-0" /></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="p-0 print:px-[14mm]">
           <header className="flex flex-wrap items-center justify-between gap-4 border-b-2 border-stone-900 pb-4">
             <div>
               <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-red-800">
@@ -350,6 +371,13 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
               </div>
             </div>
           )}
+                </td>
+              </tr>
+            </tbody>
+            <tfoot className="hidden print:table-footer-group">
+              <tr><td className="h-[12mm] p-0" /></tr>
+            </tfoot>
+          </table>
         </article>
       )}
     </section>
