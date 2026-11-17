@@ -1,4 +1,6 @@
 // src/types/repository.ts
+import type { Timestamp } from 'firebase/firestore';
+
 export type ResourceCategory = 'conteudo' | 'tarefa' | 'gincana' | 'plataforma';
 
 export type OSModule =
@@ -25,5 +27,5 @@ export interface OSResource {
   externalUrl?: string;
   gameDetails?: GameLogistics;
   authorName: string;
-  createdAt: number;
+  createdAt: number | Timestamp;
 }

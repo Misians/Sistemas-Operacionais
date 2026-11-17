@@ -6,15 +6,61 @@ html {
   scroll-behavior: smooth;
 }
 
+body {
+  @apply bg-[#faf8f6] text-stone-900 antialiased;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 12mm 14mm 14mm 14mm;
+}
+
 @media print {
+  html,
   body {
-    background: white;
+    background: #ffffff !important;
+    color: #09090b !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-size: 10.5pt;
   }
 
-  .print-exam {
-    margin: 0;
-    border: 0;
-    padding: 0;
-    box-shadow: none;
+  .print-exam-container {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+
+  .print-sheet {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  .print-columns-2 {
+    column-count: 2;
+    column-gap: 7mm;
+    column-rule: 0.5pt solid #e7e5e4;
+  }
+
+  .print-question {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-page-break-after {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .print-page-break-before {
+    break-before: page;
+    page-break-before: always;
   }
 }

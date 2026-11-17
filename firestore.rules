@@ -1,0 +1,32 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdministrator() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    match /resources/{resourceId} {
+      allow read: if true;
+      allow create, update, delete: if isAdministrator();
+    }
+
+    match /questions/{questionId} {
+      allow read: if true;
+      allow create, update, delete: if isAdministrator();
+    }
+
+    match /_metadata/adminSeed {
+      allow read: if true;
+      allow write: if isAdministrator();
+    }
+
+    match /_metadata/{documentId} {
+      allow read, write: if isAdministrator();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

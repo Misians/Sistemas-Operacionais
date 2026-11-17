@@ -1,5 +1,7 @@
+import type { QuestionTopic } from '../types/question';
+
 export interface QuizQuestion {
-  topic: string;
+  topic: QuestionTopic;
   prompt: string;
   alternatives: string[];
   answer: number;

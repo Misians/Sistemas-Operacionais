@@ -1,6 +1,3 @@
-// src/data/seedData.ts
-import { collection, addDoc, getDocs } from 'firebase/firestore';
-import { db } from '../config/firebase';
 import type { OSResource } from '../types/repository';
 
 export const INITIAL_RESOURCES: OSResource[] = [
@@ -92,22 +89,3 @@ export const INITIAL_RESOURCES: OSResource[] = [
     createdAt: Date.now() - 14400000
   }
 ];
-
-export const seedDatabase = async () => {
-  try {
-    const colRef = collection(db, 'resources');
-    const snapshot = await getDocs(colRef);
-    if (!snapshot.empty) {
-      alert('O Firestore já possui materiais cadastrados!');
-      return;
-    }
-    for (const item of INITIAL_RESOURCES) {
-      const { id, ...dataWithoutId } = item;
-      await addDoc(colRef, dataWithoutId);
-    }
-    alert('Firestore populado com sucesso!');
-  } catch (error) {
-    alert('Configure suas chaves no arquivo .env.local para enviar ao Firestore. Enquanto isso, o modo local está ativo!');
-    console.error(error);
-  }
-};

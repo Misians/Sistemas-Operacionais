@@ -1,76 +1,41 @@
-# React + TypeScript + Vite
+# SO Docente Hub
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Base de apoio ao ensino de Sistemas Operacionais com simulados, banco de questões para montar avaliações, materiais pedagógicos e ferramentas externas. As questões podem ser administradas em português, inglês, espanhol e mandarim.
 
-Currently, two official plugins are available:
+## Desenvolvimento local
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Crie um projeto no Firebase e habilite **Authentication → Email/Password**.
+2. Copie `.env.example` para `.env.local` e preencha os valores da configuração Web do Firebase.
+3. Instale dependências e inicie a aplicação:
 
-## React Compiler
+   ```sh
+   npm install
+   npm run dev
+   ```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+   Sem configuração Firebase, a aplicação usa os dados de demonstração locais. A autenticação e a persistência no Firestore exigem um projeto Firebase configurado.
 
-## Expanding the ESLint configuration
+## Configurar o painel administrativo
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+1. Instale e autentique o Firebase CLI (`npm install -g firebase-tools`, depois `firebase login`) e selecione o projeto (`firebase use <project-id>`).
+2. Implante as regras e a Cloud Function. Durante o primeiro deploy, informe `BOOTSTRAP_ADMIN_EMAIL` com o endereço que será o primeiro administrador:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+   ```sh
+   firebase deploy --only firestore:rules,functions
+   ```
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+   O valor do parâmetro pode ser guardado localmente em `functions/.env.<project-id>`; esse arquivo é ignorado pelo Git. Não coloque chaves de conta de serviço no cliente ou no repositório.
+3. Preencha `.env.local` com a configuração Web do mesmo projeto e publique a aplicação.
+4. Abra `#admin`, crie uma conta ou entre com uma conta Email/Password. A criação envia um e-mail de verificação; confirme-o e entre novamente.
+5. A conta cujo e-mail verificado corresponde a `BOOTSTRAP_ADMIN_EMAIL` pode ativar o primeiro acesso. A Cloud Function limita esse bootstrap a uma única conta. Depois, administradores podem conceder ou remover a claim `admin` de outras contas verificadas pelo próprio painel.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+As regras deixam a leitura de `resources` e `questions` pública e restringem escritas a contas com a Custom Claim `admin`. O primeiro salvamento administrativo importa os dados iniciais com IDs estáveis e grava um marcador para que exclusões posteriores não restaurem esses registros automaticamente. Questões novas exigem enunciado, alternativas e explicação nos quatro idiomas, com o mesmo número de alternativas.
 
+## Verificação
+
+```sh
+npm run build
+npm run lint
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-"# Sistemas-Operacionais" 
+O deploy do Firebase é uma etapa separada e requer acesso ao projeto e ao Firebase CLI.
