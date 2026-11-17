@@ -1,21 +1,29 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   CheckSquare,
+  ChevronLeft,
+  ChevronRight,
   Columns2,
   Dices,
+  Download,
   FileCheck2,
+  FileJson,
+  Image as ImageIcon,
+  Plus,
   Printer,
   RotateCcw,
   Search,
   Settings2,
   Shuffle,
   SlidersHorizontal,
+  Trash2,
 } from 'lucide-react';
 import { TOPIC_LABELS } from '../data/questions';
 import { PageIntro } from './SitePages';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useQuestionBank } from '../hooks/useQuestionBank';
-import type { QuestionSource } from '../types/question';
+import { useQuestionStore } from '../store/useQuestionStore';
+import type { QuestionSource, QuestionType } from '../types/question';
 import {
   createRandomSeed,
   generateExamVersions,
@@ -23,6 +31,8 @@ import {
   type ExamConfig,
 } from '../utils/examGenerator';
 import { ExamPrintSheet } from './ExamPrintSheet';
+import { ImportQuestionsModal } from './ImportQuestionsModal';
+import { QuestionFormModal } from './QuestionFormModal';
 
 const DEFAULT_INSTRUCTIONS =
   'Leia atentamente cada questão antes de responder. Utilize caneta esferográfica azul ou preta na folha de respostas. Não é permitido o uso de materiais não autorizados.';
@@ -30,14 +40,21 @@ const DEFAULT_INSTRUCTIONS =
 export function QuestionBank() {
   const { t } = useLanguage();
   const { questions, isLoading, error } = useQuestionBank();
+  const removeQuestion = useQuestionStore((state) => state.removeQuestion);
   const previewRef = useRef<HTMLDivElement>(null);
 
   const [source, setSource] = useState<'todas' | QuestionSource>('todas');
+  const [questionType, setQuestionType] = useState<'todos' | QuestionType>('todos');
   const [topic, setTopic] = useState('todos');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(6);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isExamReady, setIsExamReady] = useState(false);
   const [showMetadataFields, setShowMetadataFields] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [feedback, setFeedback] = useState('');
 
   const [config, setConfig] = useState<ExamConfig>({
     examTitle: 'Avaliação de Sistemas Operacionais',
@@ -65,18 +82,44 @@ export function QuestionBank() {
   const filteredQuestions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return questions.filter((question) => {
+      const qType = question.type ?? 'objetiva';
       const matchesSource = source === 'todas' || question.source === source;
+      const matchesType = questionType === 'todos' || qType === questionType;
       const matchesTopic = topic === 'todos' || question.topic === topic;
-      if (!matchesSource || !matchesTopic) return false;
+      if (!matchesSource || !matchesType || !matchesTopic) return false;
       if (!query) return true;
       const code = getQuestionCode(question).toLowerCase();
       return (
         code.includes(query) ||
         t(question.prompt).toLowerCase().includes(query) ||
-        question.alternatives.some((alt) => t(alt).toLowerCase().includes(query))
+        question.alternatives.some((alt) => t(alt).toLowerCase().includes(query)) ||
+        (question.expectedAnswer?.toLowerCase().includes(query) ?? false)
       );
     });
-  }, [questions, source, topic, searchQuery, t]);
+  }, [questions, source, questionType, topic, searchQuery, t]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredQuestions.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const paginatedQuestions = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredQuestions.slice(start, start + pageSize);
+  }, [filteredQuestions, safePage, pageSize]);
+
+  const exportJson = () => {
+    const blob = new Blob([JSON.stringify(questions, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'banco-questoes-so.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDeleteCustom = (id: string) => {
+    removeQuestion(id);
+    setSelectedIds((prev) => prev.filter((item) => item !== id));
+    setFeedback(t('Questão removida do banco.'));
+  };
 
   const selectedQuestions = useMemo(
     () => questions.filter((question) => selectedIds.includes(question.id)),
@@ -119,6 +162,37 @@ export function QuestionBank() {
         'Selecione questões por código ou assunto, gere múltiplos cadernos embaralhados (A, B, C...) no estilo concurso com folha de respostas e imprima com gabarito oficial consolidado.',
       )}
     >
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setIsCreateOpen(true)}
+            className="inline-flex items-center gap-2 rounded-xl bg-red-800 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-900"
+          >
+            <Plus className="h-4 w-4" /> {t('Nova questão')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsImportOpen(true)}
+            className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-xs font-bold text-stone-700 shadow-sm transition hover:border-red-300 hover:text-red-800"
+          >
+            <FileJson className="h-4 w-4 text-red-700" /> {t('Importar JSON')}
+          </button>
+          <button
+            type="button"
+            onClick={exportJson}
+            className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-xs font-semibold text-stone-600 transition hover:bg-stone-50"
+          >
+            <Download className="h-4 w-4" /> {t('Exportar JSON')}
+          </button>
+        </div>
+        {feedback && (
+          <p role="status" className="rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">
+            {feedback}
+          </p>
+        )}
+      </div>
+
       <div className="grid gap-7 xl:grid-cols-[1fr_390px] print:hidden">
         {/* Left Column: Filter & Question Selection */}
         <section className="space-y-4">
@@ -140,11 +214,15 @@ export function QuestionBank() {
                 { id: 'todas', label: t('Todas as origens') },
                 { id: 'assunto', label: t('Por assunto') },
                 { id: 'enade', label: t('Simulado estilo ENADE') },
+                { id: 'custom', label: t('Autorais / JSON') },
               ].map((filter) => (
                 <button
                   key={filter.id}
                   type="button"
-                  onClick={() => setSource(filter.id as typeof source)}
+                  onClick={() => {
+                    setSource(filter.id as typeof source);
+                    setPage(1);
+                  }}
                   className={`rounded-xl px-3.5 py-2 text-xs font-bold transition sm:text-sm ${
                     source === filter.id
                       ? 'bg-red-800 text-white shadow-sm'
@@ -156,12 +234,15 @@ export function QuestionBank() {
               ))}
             </div>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
               <label className="block text-xs font-bold uppercase tracking-wider text-stone-500">
                 {t('Assunto')}
                 <select
                   value={topic}
-                  onChange={(event) => setTopic(event.target.value)}
+                  onChange={(event) => {
+                    setTopic(event.target.value);
+                    setPage(1);
+                  }}
                   className="mt-1 w-full rounded-xl border border-stone-200 bg-stone-50/50 px-3 py-2.5 text-sm font-medium text-stone-800 outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
                 >
                   <option value="todos">{t('Todos os assuntos')}</option>
@@ -174,13 +255,32 @@ export function QuestionBank() {
               </label>
 
               <label className="block text-xs font-bold uppercase tracking-wider text-stone-500">
+                {t('Tipo')}
+                <select
+                  value={questionType}
+                  onChange={(event) => {
+                    setQuestionType(event.target.value as typeof questionType);
+                    setPage(1);
+                  }}
+                  className="mt-1 w-full rounded-xl border border-stone-200 bg-stone-50/50 px-3 py-2.5 text-sm font-medium text-stone-800 outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+                >
+                  <option value="todos">{t('Todos os tipos')}</option>
+                  <option value="objetiva">{t('Objetivas')}</option>
+                  <option value="discursiva">{t('Discursivas')}</option>
+                </select>
+              </label>
+
+              <label className="block text-xs font-bold uppercase tracking-wider text-stone-500">
                 {t('Buscar por texto ou código')}
                 <div className="relative mt-1">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
                   <input
                     type="search"
                     value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
+                    onChange={(event) => {
+                      setSearchQuery(event.target.value);
+                      setPage(1);
+                    }}
                     placeholder={t('Ex: PRC-01, deadlock, paginação...')}
                     className="w-full rounded-xl border border-stone-200 bg-stone-50/50 py-2.5 pl-9 pr-3 text-sm font-normal text-stone-800 outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
                   />
@@ -198,6 +298,21 @@ export function QuestionBank() {
               })}
             </p>
             <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1.5 text-xs text-stone-600">
+                {t('Por página')}:
+                <select
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value));
+                    setPage(1);
+                  }}
+                  className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs font-bold text-stone-800 outline-none"
+                >
+                  <option value={6}>6</option>
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                </select>
+              </label>
               <button
                 type="button"
                 onClick={selectVisible}
@@ -227,13 +342,15 @@ export function QuestionBank() {
           <div className="space-y-3">
             {!isLoading &&
               !error &&
-              filteredQuestions.map((question) => {
+              paginatedQuestions.map((question) => {
                 const checked = selectedIds.includes(question.id);
                 const code = getQuestionCode(question);
+                const isCustom = question.id.startsWith('custom-');
+                const isDiscursive = question.type === 'discursiva';
                 return (
-                  <label
+                  <div
                     key={question.id}
-                    className={`block cursor-pointer rounded-2xl border bg-white p-5 transition ${
+                    className={`rounded-2xl border bg-white p-5 transition ${
                       checked
                         ? 'border-red-400 shadow-sm ring-2 ring-red-100'
                         : 'border-stone-200/90 hover:border-orange-300'
@@ -244,42 +361,132 @@ export function QuestionBank() {
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleQuestion(question.id)}
-                        className="mt-1 h-4 w-4 rounded accent-red-800"
+                        aria-label={t(question.prompt)}
+                        className="mt-1 h-4 w-4 cursor-pointer rounded accent-red-800"
                       />
-                      <div className="flex-1">
-                        <div className="mb-2 flex flex-wrap items-center gap-2">
-                          <span className="rounded-md border border-stone-300 bg-stone-900 px-2 py-0.5 font-mono text-[11px] font-bold text-white">
-                            {code}
-                          </span>
-                          <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-[11px] font-bold text-orange-900">
-                            {t(TOPIC_LABELS[question.topic])}
-                          </span>
-                          <span className="rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-semibold text-stone-600">
-                            {question.source === 'enade' ? t('Simulado estilo ENADE') : t('Questionário por assunto')}
-                          </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-md border border-stone-300 bg-stone-900 px-2 py-0.5 font-mono text-[11px] font-bold text-white">
+                              {code}
+                            </span>
+                            <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-[11px] font-bold text-orange-900">
+                              {t(TOPIC_LABELS[question.topic])}
+                            </span>
+                            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                              isDiscursive ? 'bg-amber-100 text-amber-900' : 'bg-stone-100 text-stone-700'
+                            }`}>
+                              {isDiscursive ? t('Discursiva') : t('Objetiva')}
+                            </span>
+                            <span className="rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-semibold text-stone-600">
+                              {question.source === 'enade'
+                                ? t('Simulado estilo ENADE')
+                                : question.source === 'custom'
+                                  ? t('Autoral / JSON')
+                                  : t('Questionário por assunto')}
+                            </span>
+                            {question.imageUrl && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-semibold text-sky-800">
+                                <ImageIcon className="h-3 w-3" /> {t('Imagem')}
+                              </span>
+                            )}
+                          </div>
+                          {isCustom && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCustom(question.id)}
+                              title={t('Remover questão')}
+                              className="rounded-lg p-1 text-stone-400 transition hover:bg-red-50 hover:text-red-700"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
                         </div>
-                        <span className="text-sm font-semibold leading-6 text-stone-900">{t(question.prompt)}</span>
-                        <ul className="mt-2.5 space-y-1 text-xs leading-5 text-stone-600">
-                          {question.alternatives.map((alternative, index) => {
-                            const isCorrect = index === question.answer;
-                            return (
-                              <li key={alternative} className={isCorrect ? 'font-semibold text-emerald-800' : ''}>
-                                {String.fromCharCode(65 + index)}) {t(alternative)}
-                                {isCorrect && (
-                                  <span className="ml-1.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
-                                    ✓
-                                  </span>
-                                )}
-                              </li>
-                            );
-                          })}
-                        </ul>
+                        <p
+                          onClick={() => toggleQuestion(question.id)}
+                          className="cursor-pointer text-sm font-semibold leading-6 text-stone-900"
+                        >
+                          {t(question.prompt)}
+                        </p>
+                        {question.imageUrl && (
+                          <div className="mt-3">
+                            <img
+                              src={question.imageUrl}
+                              alt={question.imageAlt || t('Imagem da questão')}
+                              className="max-h-48 rounded-xl border border-stone-200 bg-stone-50 object-contain"
+                            />
+                          </div>
+                        )}
+                        {isDiscursive ? (
+                          <div className="mt-2.5 rounded-xl border border-amber-200/80 bg-amber-50/60 p-3 text-xs leading-5 text-amber-950">
+                            <span className="font-bold uppercase tracking-wide text-amber-800">
+                              {t('Espelho de resposta')}:{' '}
+                            </span>
+                            {question.expectedAnswer || t('Sem espelho cadastrado.')}
+                          </div>
+                        ) : (
+                          <ul className="mt-2.5 space-y-1 text-xs leading-5 text-stone-600">
+                            {question.alternatives.map((alternative, index) => {
+                              const isCorrect = index === question.answer;
+                              return (
+                                <li key={`${question.id}-alt-${index}`} className={isCorrect ? 'font-semibold text-emerald-800' : ''}>
+                                  {String.fromCharCode(65 + index)}) {t(alternative)}
+                                  {isCorrect && (
+                                    <span className="ml-1.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                                      ✓
+                                    </span>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
                       </div>
                     </div>
-                  </label>
+                  </div>
                 );
               })}
           </div>
+
+          {totalPages > 1 && (
+            <nav aria-label={t('Paginação de questões')} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage === 1}
+                className="inline-flex items-center gap-1 rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-bold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft className="h-4 w-4" /> {t('Anterior')}
+              </button>
+
+              <div className="flex flex-wrap items-center gap-1">
+                {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                  <button
+                    key={pageNumber}
+                    type="button"
+                    onClick={() => setPage(pageNumber)}
+                    aria-current={pageNumber === safePage ? 'page' : undefined}
+                    className={`h-8 min-w-8 rounded-lg px-2.5 text-xs font-bold transition ${
+                      pageNumber === safePage
+                        ? 'bg-red-800 text-white shadow-sm'
+                        : 'text-stone-600 hover:bg-stone-100'
+                    }`}
+                  >
+                    {pageNumber}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage === totalPages}
+                className="inline-flex items-center gap-1 rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-bold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {t('Próxima')} <ChevronRight className="h-4 w-4" />
+              </button>
+            </nav>
+          )}
         </section>
 
         {/* Right Column: Sticky Exam Builder & Mini-Concurso Configurator */}
@@ -582,6 +789,25 @@ export function QuestionBank() {
           />
         )}
       </div>
+
+      <QuestionFormModal
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onCreated={(id) => {
+          setSelectedIds((prev) => [id, ...prev]);
+          setPage(1);
+          setFeedback(t('Nova questão adicionada ao banco e selecionada.'));
+        }}
+      />
+
+      <ImportQuestionsModal
+        isOpen={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        onImported={(count) => {
+          setPage(1);
+          setFeedback(`${count} questão(ões) importada(s) do JSON com sucesso!`);
+        }}
+      />
     </PageIntro>
   );
 }

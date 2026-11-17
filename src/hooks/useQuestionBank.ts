@@ -1,7 +1,9 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../config/firebase';
 import {
+  DISCURSIVE_QUESTIONS,
   ENADE_QUESTIONS,
   SUBJECT_QUESTIONS,
   type QuizQuestion,
@@ -9,10 +11,12 @@ import {
 import { englishQuestionMessages, spanishQuestionMessages, chineseQuestionMessages } from '../i18n/questionTranslations';
 import type { QuestionDocument, QuestionLanguage, QuestionTranslation } from '../types/question';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useQuestionStore } from '../store/useQuestionStore';
 
 const INITIAL_QUESTION_DOCUMENTS: QuestionDocument[] = [
   ...SUBJECT_QUESTIONS.map((question, index) => createInitialQuestion(question, `subject-${index}`, 'assunto')),
   ...ENADE_QUESTIONS.map((question, index) => createInitialQuestion(question, `enade-${index}`, 'enade')),
+  ...DISCURSIVE_QUESTIONS.map((question, index) => createInitialQuestion(question, `discursive-${index}`, 'assunto')),
 ];
 
 function createInitialQuestion(
@@ -24,19 +28,26 @@ function createInitialQuestion(
     prompt: messages[question.prompt] ?? question.prompt,
     alternatives: question.alternatives.map((alternative) => messages[alternative] ?? alternative),
     explanation: messages[question.explanation] ?? question.explanation,
+    expectedAnswer: question.expectedAnswer ? (messages[question.expectedAnswer] ?? question.expectedAnswer) : undefined,
   });
   const now = Date.now();
 
   return {
     id,
+    type: question.type ?? 'objetiva',
     topic: question.topic,
     source,
     answer: question.answer,
+    imageUrl: question.imageUrl,
+    imageAlt: question.imageAlt,
+    expectedAnswer: question.expectedAnswer,
+    expectedLines: question.expectedLines,
     translations: {
       pt: {
         prompt: question.prompt,
         alternatives: question.alternatives,
         explanation: question.explanation,
+        expectedAnswer: question.expectedAnswer,
       },
       en: translate(englishQuestionMessages),
       es: translate(spanishQuestionMessages),
@@ -51,19 +62,26 @@ function toQuizQuestion(
   document: QuestionDocument,
   language: QuestionLanguage,
 ): QuizQuestion & Pick<QuestionDocument, 'id' | 'source'> {
-  const translation = document.translations[language];
+  const translation = document.translations[language] ?? document.translations.pt;
   return {
     ...document,
+    type: document.type ?? 'objetiva',
     topic: document.topic,
     prompt: translation.prompt,
     alternatives: translation.alternatives,
     answer: document.answer,
     explanation: translation.explanation,
+    expectedAnswer: translation.expectedAnswer ?? document.expectedAnswer,
+    expectedLines: document.expectedLines,
+    imageUrl: document.imageUrl,
+    imageAlt: document.imageAlt,
   };
 }
 
 export function useQuestionBank() {
   const { language } = useLanguage();
+  const customQuestions = useQuestionStore((state) => state.customQuestions);
+
   const query = useQuery({
     queryKey: ['question-bank'],
     queryFn: async (): Promise<QuestionDocument[]> => {
@@ -84,9 +102,12 @@ export function useQuestionBank() {
     },
   });
 
-  const localizedQuestions = (query.data ?? INITIAL_QUESTION_DOCUMENTS).map((document) =>
-    toQuizQuestion(document, language),
-  );
+  const localizedQuestions = useMemo(() => {
+    const base = (query.data ?? INITIAL_QUESTION_DOCUMENTS).map((document) =>
+      toQuizQuestion(document, language),
+    );
+    return [...customQuestions, ...base];
+  }, [query.data, language, customQuestions]);
 
   return {
     ...query,

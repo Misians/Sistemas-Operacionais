@@ -201,14 +201,20 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
                         {String(q.number).padStart(2, '0')}
                       </span>
                       <div className="flex items-center gap-1.5">
-                        {q.alternatives.map((_, altIdx) => (
-                          <span
-                            key={altIdx}
-                            className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-stone-700 text-[9px] font-bold text-stone-800"
-                          >
-                            {String.fromCharCode(65 + altIdx)}
+                        {q.type === 'discursiva' ? (
+                          <span className="rounded bg-stone-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-stone-600">
+                            {t('Discursiva')}
                           </span>
-                        ))}
+                        ) : (
+                          q.alternatives.map((_, altIdx) => (
+                            <span
+                              key={altIdx}
+                              className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-stone-700 text-[9px] font-bold text-stone-800"
+                            >
+                              {String.fromCharCode(65 + altIdx)}
+                            </span>
+                          ))
+                        )}
                       </div>
                     </div>
                   ))}
@@ -234,16 +240,33 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
                   <p className="text-[13px] font-medium leading-[1.45] text-stone-950">
                     {t(question.prompt)}
                   </p>
-                  <ol className="mt-2 space-y-1 pl-1 text-[12.5px] leading-[1.4] text-stone-800">
-                    {question.alternatives.map((alternative, altIdx) => (
-                      <li key={`${question.originalId}-${altIdx}`} className="flex items-start gap-2">
-                        <span className="shrink-0 font-bold text-stone-900">
-                          ({String.fromCharCode(65 + altIdx)})
-                        </span>
-                        <span>{t(alternative)}</span>
-                      </li>
-                    ))}
-                  </ol>
+                  {question.imageUrl && (
+                    <div className="my-2.5">
+                      <img
+                        src={question.imageUrl}
+                        alt={question.imageAlt || `${t('Questão')} ${question.number}`}
+                        className="max-h-56 rounded border border-stone-300 object-contain"
+                      />
+                    </div>
+                  )}
+                  {question.type === 'discursiva' ? (
+                    <div className="mt-3 space-y-4 pt-1">
+                      {Array.from({ length: question.expectedLines || 6 }).map((_, lineIdx) => (
+                        <div key={lineIdx} className="border-b border-stone-300 pb-3" />
+                      ))}
+                    </div>
+                  ) : (
+                    <ol className="mt-2 space-y-1 pl-1 text-[12.5px] leading-[1.4] text-stone-800">
+                      {question.alternatives.map((alternative, altIdx) => (
+                        <li key={`${question.originalId}-${altIdx}`} className="flex items-start gap-2">
+                          <span className="shrink-0 font-bold text-stone-900">
+                            ({String.fromCharCode(65 + altIdx)})
+                          </span>
+                          <span>{t(alternative)}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
                 </div>
               ))}
             </div>
@@ -352,6 +375,36 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
             </div>
           </div>
 
+          {/* Espelho de Respostas — Questões Discursivas */}
+          {selectedQuestions.some((q) => q.type === 'discursiva') && (
+            <div className="mt-7 border-t border-stone-300 pt-5">
+              <h3 className="mb-3 text-xs font-extrabold uppercase tracking-wider text-stone-800">
+                {t('Espelho de Respostas — Questões Discursivas')}
+              </h3>
+              <div className="space-y-3">
+                {selectedQuestions
+                  .filter((q) => q.type === 'discursiva')
+                  .map((question) => {
+                    const code = getQuestionCode(question);
+                    return (
+                      <div key={`${question.id}-espelho`} className="print-question rounded border border-amber-300 bg-amber-50/50 p-3.5 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono font-bold text-red-900">{code}</span>
+                          <span className="rounded bg-amber-200/80 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-950">
+                            {t('Espelho de correção')}
+                          </span>
+                        </div>
+                        <p className="mt-1.5 font-semibold text-stone-900">{t(question.prompt)}</p>
+                        <p className="mt-2 whitespace-pre-line rounded border border-amber-200 bg-white p-2.5 leading-relaxed text-stone-800">
+                          {question.expectedAnswer || t('Sem espelho cadastrado.')}
+                        </p>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
           {/* Optional Commented Key by Question Code */}
           {config.includeExplanations && (
             <div className="mt-7 border-t border-stone-300 pt-5">
@@ -361,7 +414,10 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
               <div className="space-y-3">
                 {selectedQuestions.map((question) => {
                   const code = getQuestionCode(question);
-                  const originalCorrectText = question.alternatives[question.answer] ?? '';
+                  const originalCorrectText =
+                    question.type === 'discursiva'
+                      ? (question.expectedAnswer || t('Discursiva'))
+                      : (question.alternatives[question.answer] ?? '');
                   return (
                     <div key={question.id} className="print-question rounded border border-stone-200 bg-stone-50/70 p-3 text-xs">
                       <div className="flex flex-wrap items-center justify-between gap-2">

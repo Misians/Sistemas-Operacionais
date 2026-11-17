@@ -1,11 +1,16 @@
-import type { QuestionTopic } from '../types/question';
+import type { QuestionTopic, QuestionType } from '../types/question';
 
 export interface QuizQuestion {
+  type?: QuestionType;
   topic: QuestionTopic;
   prompt: string;
   alternatives: string[];
   answer: number;
   explanation: string;
+  imageUrl?: string;
+  imageAlt?: string;
+  expectedAnswer?: string;
+  expectedLines?: number;
 }
 
 export const TOPIC_LABELS: Record<string, string> = {
@@ -14,6 +19,10 @@ export const TOPIC_LABELS: Record<string, string> = {
   sincronizacao: 'Sincronização e deadlocks',
   arquivos: 'Sistemas de arquivos',
 };
+
+export function getTopicLabel(topic: string): string {
+  return TOPIC_LABELS[topic] ?? topic;
+}
 
 export const SUBJECT_QUESTIONS: QuizQuestion[] = [
   {
@@ -161,5 +170,28 @@ export const ENADE_QUESTIONS: QuizQuestion[] = [
     ],
     answer: 1,
     explanation: 'Diretórios organizam o espaço de nomes e associam nomes a arquivos e subdiretórios. Os dados e metadados são gerenciados por estruturas próprias do sistema de arquivos.',
+  },
+];
+
+export const DISCURSIVE_QUESTIONS: QuizQuestion[] = [
+  {
+    type: 'discursiva',
+    topic: 'processos',
+    prompt: 'Explique a diferença fundamental entre um processo e uma thread no contexto de compartilhamento de memória e custo de troca de contexto.',
+    alternatives: [],
+    answer: -1,
+    expectedAnswer: 'Um processo possui seu próprio espaço de endereçamento isolado e recursos alocados pelo sistema operacional, tornando a troca de contexto mais custosa (envolve troca de tabela de páginas/TLB). Já threads pertencentes a um mesmo processo compartilham o espaço de endereçamento, código, dados e descritores de arquivos, mantendo apenas registradores e pilha próprios, o que torna a troca de contexto entre threads do mesmo processo mais rápida.',
+    expectedLines: 6,
+    explanation: 'Espera-se que o estudante destaque o isolamento de memória entre processos versus o compartilhamento do espaço de endereçamento entre threads de um mesmo processo, bem como o impacto na troca de contexto.',
+  },
+  {
+    type: 'discursiva',
+    topic: 'sincronizacao',
+    prompt: 'Um sistema apresenta quatro recursos não preemptíveis disputados em ciclo por quatro processos. Como a quebra da condição de "posse e espera" ou "espera circular" pode evitar o deadlock nesse cenário?',
+    alternatives: [],
+    answer: -1,
+    expectedAnswer: 'Para quebrar "posse e espera", pode-se exigir que cada processo solicite todos os recursos necessários de uma só vez antes de iniciar, ou libere os recursos já alocados antes de pedir novos. Para quebrar "espera circular", impõe-se uma ordenação numérica global dos recursos, obrigando os processos a solicitá-los sempre em ordem crescente.',
+    expectedLines: 6,
+    explanation: 'A resposta deve relacionar as condições de Coffman a estratégias práticas de prevenção de deadlock.',
   },
 ];

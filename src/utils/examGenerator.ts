@@ -1,13 +1,18 @@
-import type { QuestionSource, QuestionTopic } from '../types/question';
+import type { QuestionSource, QuestionTopic, QuestionType } from '../types/question';
 
 export interface BankQuestionItem {
   id: string;
+  type?: QuestionType;
   topic: QuestionTopic;
   source: QuestionSource;
   prompt: string;
   alternatives: string[];
   answer: number;
   explanation: string;
+  imageUrl?: string;
+  imageAlt?: string;
+  expectedAnswer?: string;
+  expectedLines?: number;
 }
 
 export interface ExamConfig {
@@ -33,6 +38,7 @@ export interface ExamQuestionItem {
   number: number;
   originalId: string;
   code: string;
+  type: QuestionType;
   topic: QuestionTopic;
   source: QuestionSource;
   prompt: string;
@@ -40,6 +46,10 @@ export interface ExamQuestionItem {
   correctIndex: number;
   correctLetter: string;
   explanation: string;
+  imageUrl?: string;
+  imageAlt?: string;
+  expectedAnswer?: string;
+  expectedLines?: number;
 }
 
 export interface ExamVersion {
@@ -136,6 +146,27 @@ export function generateExamVersions(
       : [...selectedQuestions];
 
     const questions: ExamQuestionItem[] = orderedQuestions.map((question, qIndex) => {
+      const qType: QuestionType = question.type ?? (question.alternatives.length > 0 ? 'objetiva' : 'discursiva');
+      if (qType === 'discursiva') {
+        return {
+          number: qIndex + 1,
+          originalId: question.id,
+          code: getQuestionCode(question),
+          type: 'discursiva',
+          topic: question.topic,
+          source: question.source,
+          prompt: question.prompt,
+          alternatives: [],
+          correctIndex: -1,
+          correctLetter: 'DISC',
+          explanation: question.explanation,
+          imageUrl: question.imageUrl,
+          imageAlt: question.imageAlt,
+          expectedAnswer: question.expectedAnswer,
+          expectedLines: question.expectedLines ?? 6,
+        };
+      }
+
       const indexedAlternatives = question.alternatives.map((text, idx) => ({
         text,
         isCorrect: idx === question.answer,
@@ -154,6 +185,7 @@ export function generateExamVersions(
         number: qIndex + 1,
         originalId: question.id,
         code: getQuestionCode(question),
+        type: 'objetiva',
         topic: question.topic,
         source: question.source,
         prompt: question.prompt,
@@ -161,6 +193,8 @@ export function generateExamVersions(
         correctIndex,
         correctLetter: String.fromCharCode(65 + correctIndex),
         explanation: question.explanation,
+        imageUrl: question.imageUrl,
+        imageAlt: question.imageAlt,
       };
     });
 
