@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { ArrowRight, Cpu } from 'lucide-react';
 import { QuizSection } from './components/QuizSection';
-import { QuestionBank } from './components/QuestionBank';
 import { MaterialsPage } from './components/MaterialsPage';
 import { LANGUAGE_NAMES, useLanguage, type Language } from './i18n/LanguageContext';
 import {
@@ -17,7 +16,6 @@ const AdminPage = lazy(() => import('./components/AdminPage').then(({ AdminPage:
 const PAGES = [
   { id: 'inicio', label: 'Início' },
   { id: 'simulados', label: 'Simulados' },
-  { id: 'banco-questoes', label: 'Banco de questões' },
   { id: 'contato', label: 'Contato' },
   { id: 'parte-pedagogica', label: 'Parte pedagógica' },
 ] as const;
@@ -98,7 +96,6 @@ export default function App() {
             <QuizSection />
           </PageIntro>
         )}
-        {page === 'banco-questoes' && <QuestionBank />}
         {page === 'contato' && <ContactPage />}
         {page === 'parte-pedagogica' && <PedagogyPage />}
         {page === 'ferramentas' && <ExternalToolsPage />}

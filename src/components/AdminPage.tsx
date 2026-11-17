@@ -31,8 +31,9 @@ import { useLanguage } from '../i18n/LanguageContext';
 import type { QuestionDocument, QuestionLanguage, QuestionTopic, QuestionTranslation, QuestionType } from '../types/question';
 import type { OSModule, OSResource, ResourceCategory } from '../types/repository';
 import { parseQuestionsFromJson, readImageAsDataUrl, SAMPLE_QUESTIONS_JSON } from '../utils/questionImport';
+import { QuestionBank } from './QuestionBank';
 
-type AdminSection = 'resources' | 'questions';
+type AdminSection = 'resources' | 'questions' | 'exam';
 type ResourceForm = Omit<OSResource, 'id' | 'createdAt' | 'externalUrl'> & {
   externalUrl: string;
   executionTime: number;
@@ -44,7 +45,16 @@ const LANGUAGES: QuestionLanguage[] = ['pt', 'en', 'es', 'zh'];
 const LANGUAGE_NAMES: Record<QuestionLanguage, string> = { pt: 'Português', en: 'English', es: 'Español', zh: '中文' };
 const RESOURCE_CATEGORIES: ResourceCategory[] = ['conteudo', 'tarefa', 'gincana', 'plataforma'];
 const MODULES: OSModule[] = ['arquitetura_so', 'processos_threads', 'sincronizacao', 'gerencia_memoria', 'sistemas_arquivos'];
-const TOPICS: QuestionTopic[] = ['processos', 'memoria', 'sincronizacao', 'arquivos'];
+const TOPICS: QuestionTopic[] = [
+  'introducao',
+  'processos',
+  'memoria',
+  'sincronizacao',
+  'arquivos',
+  'io',
+  'seguranca',
+  'virtualizacao',
+];
 const RESOURCE_CATEGORY_LABELS: Record<ResourceCategory, string> = {
   conteudo: 'Conteúdo Teórico',
   tarefa: 'Tarefa / Laboratório',
@@ -635,7 +645,7 @@ export function AdminPage() {
 
   return (
     <AdminShell>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-white p-4">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-white p-4 print:hidden">
         <div>
           <p className="text-sm text-stone-600"><ShieldCheck className="mr-2 inline h-4 w-4 text-green-700" />{t('Administrador conectado:')} <strong>{user.email}</strong></p>
           <p className="mt-0.5 font-mono text-[11px] text-stone-400">Firebase: {activeFirebaseProjectId}</p>
@@ -655,12 +665,15 @@ export function AdminPage() {
       </div>
       <Feedback message={message} error={errorMessage || (resourcesError ? resourcesError.message : questionsError?.message ?? '')} />
 
-      <section className="mb-6 flex flex-wrap gap-2">
+      <section className="mb-6 flex flex-wrap gap-2 print:hidden">
         <button onClick={() => setSection('resources')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${section === 'resources' ? 'bg-red-800 text-white' : 'bg-white text-stone-700'}`}>{t('Materiais')}</button>
         <button onClick={() => setSection('questions')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${section === 'questions' ? 'bg-red-800 text-white' : 'bg-white text-stone-700'}`}>{t('Questões')}</button>
+        <button onClick={() => setSection('exam')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${section === 'exam' ? 'bg-red-800 text-white' : 'bg-white text-stone-700'}`}>{t('Criar prova')}</button>
       </section>
 
-      {section === 'resources' ? (
+      {section === 'exam' ? (
+        <QuestionBank embedded />
+      ) : section === 'resources' ? (
         <section className="rounded-2xl border border-orange-100 bg-white p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div><h2 className="text-xl font-black">{t('Gerenciar materiais')}</h2><p className="text-sm text-stone-500">{t('Slides, artigos, gincanas, atividades e ferramentas externas.')}</p></div>
@@ -760,7 +773,7 @@ export function AdminPage() {
         />
       )}
 
-      <section className="mt-6 rounded-2xl border border-orange-100 bg-white p-5">
+      <section className="mt-6 rounded-2xl border border-orange-100 bg-white p-5 print:hidden">
         <h2 className="text-lg font-black">{t('Administradores')}</h2>
         <p className="mt-1 text-sm text-stone-600">{t('Conceda ou remova a claim administrativa de uma conta verificada.')}</p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -1329,10 +1342,12 @@ function QuestionTranslationForm({
 function AdminShell({ children }: { children: import('react').ReactNode }) {
   const { t } = useLanguage();
   return (
-    <div className="mx-auto max-w-7xl px-5 py-12 sm:px-8">
-      <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-700">{t('Área restrita')}</p>
-      <h1 className="mt-2 text-3xl font-black text-stone-900">{t('Painel administrativo')}</h1>
-      <p className="mb-8 mt-2 text-sm leading-6 text-stone-600">{t('Gerencie conteúdos e questões do SO Docente Hub com acesso protegido pelo Firebase.')}</p>
+    <div className="mx-auto max-w-7xl px-5 py-12 sm:px-8 print:max-w-none print:p-0">
+      <div className="print:hidden">
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-700">{t('Área restrita')}</p>
+        <h1 className="mt-2 text-3xl font-black text-stone-900">{t('Painel administrativo')}</h1>
+        <p className="mb-8 mt-2 text-sm leading-6 text-stone-600">{t('Gerencie conteúdos e questões do SO Docente Hub com acesso protegido pelo Firebase.')}</p>
+      </div>
       {children}
     </div>
   );

@@ -37,7 +37,7 @@ import { QuestionFormModal } from './QuestionFormModal';
 const DEFAULT_INSTRUCTIONS =
   'Leia atentamente cada questão antes de responder. Utilize caneta esferográfica azul ou preta na folha de respostas. Não é permitido o uso de materiais não autorizados.';
 
-export function QuestionBank() {
+export function QuestionBank({ embedded = false }: { embedded?: boolean }) {
   const { t } = useLanguage();
   const { questions, isLoading, error } = useQuestionBank();
   const removeQuestion = useQuestionStore((state) => state.removeQuestion);
@@ -154,14 +154,8 @@ export function QuestionBank() {
     }, 60);
   };
 
-  return (
-    <PageIntro
-      eyebrow={t('Monte avaliações')}
-      title={t('Banco de questões & Gerador de Provas')}
-      description={t(
-        'Selecione questões por código ou assunto, gere múltiplos cadernos embaralhados (A, B, C...) no estilo concurso com folha de respostas e imprima com gabarito oficial consolidado.',
-      )}
-    >
+  const content = (
+    <>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div className="flex flex-wrap gap-2">
           <button
@@ -808,6 +802,22 @@ export function QuestionBank() {
           setFeedback(`${count} questão(ões) importada(s) do JSON com sucesso!`);
         }}
       />
+    </>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <PageIntro
+      eyebrow={t('Monte avaliações')}
+      title={t('Banco de questões & Gerador de Provas')}
+      description={t(
+        'Selecione questões por código ou assunto, gere múltiplos cadernos embaralhados (A, B, C...) no estilo concurso com folha de respostas e imprima com gabarito oficial consolidado.',
+      )}
+    >
+      {content}
     </PageIntro>
   );
 }

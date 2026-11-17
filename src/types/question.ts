@@ -1,6 +1,14 @@
 import type { Timestamp } from 'firebase/firestore';
 
-export type QuestionTopic = 'processos' | 'memoria' | 'sincronizacao' | 'arquivos';
+export type QuestionTopic =
+  | 'introducao'
+  | 'processos'
+  | 'memoria'
+  | 'sincronizacao'
+  | 'arquivos'
+  | 'io'
+  | 'seguranca'
+  | 'virtualizacao';
 export type QuestionSource = 'assunto' | 'enade' | 'custom';
 export type QuestionType = 'objetiva' | 'discursiva';
 export type QuestionLanguage = 'pt' | 'en' | 'es' | 'zh';

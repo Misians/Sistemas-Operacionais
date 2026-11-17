@@ -6,6 +6,16 @@ import { TOPIC_LABELS, type QuizQuestion } from '../data/questions';
 
 type QuizMode = 'assunto' | 'enade' | 'discursivas';
 const TOPICS = Object.entries(TOPIC_LABELS);
+const PRESET_COUNTS = [3, 5, 10, 15];
+
+function pickRandomQuestions<T>(items: T[], count: number): T[] {
+  const pool = [...items];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, Math.min(count, pool.length));
+}
 
 type UserAnswer =
   | { type: 'objetiva'; selected: number }
@@ -15,7 +25,8 @@ export function QuizSection() {
   const { t } = useLanguage();
   const { questions: questionBank, isLoading, error } = useQuestionBank();
   const [mode, setMode] = useState<QuizMode>('assunto');
-  const [selectedTopic, setSelectedTopic] = useState(TOPICS[0][0]);
+  const [selectedTopic, setSelectedTopic] = useState('todos');
+  const [questionCount, setQuestionCount] = useState(5);
   const [quiz, setQuiz] = useState<QuizQuestion[] | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
@@ -23,19 +34,25 @@ export function QuizSection() {
   const [answers, setAnswers] = useState<UserAnswer[]>([]);
 
   const availableQuestions = useMemo(() => {
+    const matchesTopic = (topic: string) => selectedTopic === 'todos' || topic === selectedTopic;
     if (mode === 'discursivas') {
-      return questionBank.filter((question) => question.type === 'discursiva');
+      return questionBank.filter((question) => question.type === 'discursiva' && matchesTopic(question.topic));
     }
     if (mode === 'enade') {
-      return questionBank.filter((question) => question.source === 'enade' && question.type !== 'discursiva');
+      return questionBank.filter(
+        (question) => question.source === 'enade' && question.type !== 'discursiva' && matchesTopic(question.topic),
+      );
     }
-    return questionBank.filter(
-      (question) =>
-        question.source !== 'enade' &&
-        question.type !== 'discursiva' &&
-        question.topic === selectedTopic,
-    );
+    return questionBank.filter((question) => question.type !== 'discursiva' && matchesTopic(question.topic));
   }, [mode, questionBank, selectedTopic]);
+
+  const effectiveCount =
+    availableQuestions.length === 0 ? 0 : Math.min(Math.max(1, questionCount), availableQuestions.length);
+
+  const startQuiz = () => {
+    if (effectiveCount === 0) return;
+    setQuiz(pickRandomQuestions(availableQuestions, effectiveCount));
+  };
 
   const resetQuiz = () => {
     setQuiz(null);
@@ -146,20 +163,69 @@ export function QuizSection() {
               )}
             </div>
             <div className="rounded-2xl border border-stone-200 bg-stone-50/70 p-5">
-              {mode === 'assunto' && (
-                <label className="mb-4 block text-xs font-bold uppercase tracking-wide text-stone-600">
-                  {t('Assunto')}
-                  <select
-                    value={selectedTopic}
-                    onChange={(event) => setSelectedTopic(event.target.value)}
-                    className="mt-2 w-full rounded-xl border border-stone-200 bg-white px-3 py-3 text-sm font-medium text-stone-800 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                  >
-                    {TOPICS.map(([topic, label]) => (
-                      <option key={topic} value={topic}>{t(label)}</option>
-                    ))}
-                  </select>
+              <label className="mb-4 block text-xs font-bold uppercase tracking-wide text-stone-600">
+                {t('Assunto')}
+                <select
+                  value={selectedTopic}
+                  onChange={(event) => setSelectedTopic(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-stone-200 bg-white px-3 py-3 text-sm font-medium text-stone-800 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                >
+                  <option value="todos">{t('Todos os assuntos')}</option>
+                  {TOPICS.map(([topic, label]) => (
+                    <option key={topic} value={topic}>{t(label)}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="mb-4">
+                <label className="block text-xs font-bold uppercase tracking-wide text-stone-600">
+                  {t('Quantidade de questões')}
+                  <input
+                    type="number"
+                    min={1}
+                    max={Math.max(1, availableQuestions.length)}
+                    disabled={availableQuestions.length === 0}
+                    value={effectiveCount}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      if (Number.isFinite(next)) {
+                        setQuestionCount(Math.max(1, Math.round(next)));
+                      }
+                    }}
+                    className="mt-2 w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-semibold text-stone-800 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:opacity-50"
+                  />
                 </label>
-              )}
+                {availableQuestions.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {PRESET_COUNTS.filter((n) => n < availableQuestions.length).map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setQuestionCount(count)}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition ${
+                          effectiveCount === count
+                            ? 'border-red-700 bg-red-800 text-white'
+                            : 'border-stone-200 bg-white text-stone-600 hover:border-red-300'
+                        }`}
+                      >
+                        {count}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setQuestionCount(availableQuestions.length)}
+                      className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition ${
+                        effectiveCount === availableQuestions.length
+                          ? 'border-red-700 bg-red-800 text-white'
+                          : 'border-stone-200 bg-white text-stone-600 hover:border-red-300'
+                      }`}
+                    >
+                      {t('Todas')} ({availableQuestions.length})
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="mb-4 flex items-center justify-between text-sm">
                 <span className="text-stone-600">{t('Questões disponíveis')}</span>
                 <span className="rounded-full border border-stone-200 bg-white px-2.5 py-1 text-xs font-bold text-red-800">
@@ -167,8 +233,8 @@ export function QuizSection() {
                 </span>
               </div>
               <button
-                onClick={() => setQuiz(availableQuestions)}
-                disabled={availableQuestions.length === 0}
+                onClick={startQuiz}
+                disabled={effectiveCount === 0}
                 className="w-full rounded-xl bg-amber-400 px-4 py-3 text-sm font-bold text-stone-950 shadow-sm transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {t('Começar questionário')}

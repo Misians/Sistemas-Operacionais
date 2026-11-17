@@ -25,10 +25,14 @@ function createMessageMap(copies: QuestionCopy[]) {
 }
 
 const topicTranslations: Record<string, string> = {
+  introducao: 'Introduction and OS architecture',
   processos: 'Processes and threads',
   memoria: 'Memory management',
   sincronizacao: 'Synchronization and deadlocks',
-  arquivos: 'File systems',
+  arquivos: 'File management system',
+  io: 'Input / Output (I/O)',
+  seguranca: 'Security and protection',
+  virtualizacao: 'Virtualization and containers',
 };
 
 const englishQuestionMessages = createMessageMap([

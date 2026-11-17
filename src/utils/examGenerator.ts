@@ -60,10 +60,14 @@ export interface ExamVersion {
 }
 
 const TOPIC_CODE_PREFIX: Record<QuestionTopic, string> = {
+  introducao: 'INT',
   processos: 'PRC',
   memoria: 'MEM',
   sincronizacao: 'SNC',
   arquivos: 'ARQ',
+  io: 'IO',
+  seguranca: 'SEG',
+  virtualizacao: 'VRT',
 };
 
 /**

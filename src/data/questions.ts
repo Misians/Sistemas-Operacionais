@@ -14,10 +14,14 @@ export interface QuizQuestion {
 }
 
 export const TOPIC_LABELS: Record<string, string> = {
+  introducao: 'Introdução e arquitetura de SO',
   processos: 'Processos e threads',
   memoria: 'Gerenciamento de memória',
   sincronizacao: 'Sincronização e deadlocks',
-  arquivos: 'Sistemas de arquivos',
+  arquivos: 'Sistema de gerenciamento de arquivos',
+  io: 'Entrada e Saída (E/S / I/O)',
+  seguranca: 'Segurança e proteção',
+  virtualizacao: 'Virtualização e contêineres',
 };
 
 export function getTopicLabel(topic: string): string {

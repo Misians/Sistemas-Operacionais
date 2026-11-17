@@ -2,7 +2,6 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowRight,
   BookOpen,
-  ClipboardList,
   GraduationCap,
   Lightbulb,
   Mail,
@@ -130,9 +129,8 @@ export function HomePage() {
         </div>
       </section>
 
-      <section className="mt-10 grid gap-4 sm:grid-cols-3">
+      <section className="mt-10 grid gap-4 sm:grid-cols-2">
         <QuickLink href="#simulados" icon={<GraduationCap className="h-5 w-5" />} title={t('Simulados')} description={t('Pratique por assunto ou em formato inspirado no ENADE.')} />
-        <QuickLink href="#banco-questoes" icon={<ClipboardList className="h-5 w-5" />} title={t('Banco de questões')} description={t('Selecione questões do simulador e monte uma prova.')} />
         <QuickLink href="#ferramentas" icon={<Monitor className="h-5 w-5" />} title={t('Ferramentas externas')} description={t('Conheça plataformas para complementar as aulas.')} />
       </section>
     </div>
