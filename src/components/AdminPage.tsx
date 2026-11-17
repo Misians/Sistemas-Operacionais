@@ -1,11 +1,28 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { createUserWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  type User,
+} from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
 import { collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, KeyRound, LogOut, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
-import { auth, db } from '../config/firebase';
-import { functions } from '../config/firebase';
+import { Check, Database, KeyRound, LogOut, Pencil, Plus, Settings, ShieldCheck, Trash2 } from 'lucide-react';
+import {
+  activeFirebaseProjectId,
+  auth,
+  clearCustomFirebaseConfig,
+  db,
+  functions,
+  googleProvider,
+  isCustomFirebaseConfig,
+  saveCustomFirebaseConfig,
+} from '../config/firebase';
 import { INITIAL_RESOURCES } from '../data/seedData';
 import { TOPIC_LABELS } from '../data/questions';
 import { INITIAL_QUESTION_DOCUMENTS, useQuestionBank } from '../hooks/useQuestionBank';
@@ -110,6 +127,22 @@ export function AdminPage() {
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showFirebaseConfig, setShowFirebaseConfig] = useState(false);
+  const [fbApiKey, setFbApiKey] = useState('');
+  const [fbAuthDomain, setFbAuthDomain] = useState('');
+  const [fbProjectId, setFbProjectId] = useState('');
+  const [fbAppId, setFbAppId] = useState('');
+
+  const checkIsAdmin = async (currentUser: User): Promise<boolean> => {
+    const token = await currentUser.getIdTokenResult(true);
+    if (token.claims.admin === true) return true;
+    try {
+      const adminDoc = await getDoc(doc(db, 'admins', currentUser.uid));
+      return adminDoc.exists();
+    } catch {
+      return false;
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -122,8 +155,8 @@ export function AdminPage() {
       }
       setAuthLoading(true);
       try {
-        const token = await currentUser.getIdTokenResult(true);
-        if (active) setIsAdmin(token.claims.admin === true);
+        const adminStatus = await checkIsAdmin(currentUser);
+        if (active) setIsAdmin(adminStatus);
       } catch (error) {
         if (active) setErrorMessage(error instanceof Error ? error.message : t('Falha ao verificar permissões.'));
       } finally {
@@ -196,6 +229,22 @@ export function AdminPage() {
     }, t('Sessão iniciada.'));
   };
 
+  const loginWithGoogle = async () => {
+    await runAdminAction(async () => {
+      await signInWithPopup(auth, googleProvider);
+    }, t('Sessão iniciada com Google.'));
+  };
+
+  const resetPassword = async () => {
+    if (!email.trim()) {
+      setErrorMessage(t('Digite seu e-mail acima para receber o link de redefinição de senha.'));
+      return;
+    }
+    await runAdminAction(async () => {
+      await sendPasswordResetEmail(auth, email.trim());
+    }, t('E-mail de redefinição de senha enviado. Verifique sua caixa de entrada e spam.'));
+  };
+
   const register = async () => {
     await runAdminAction(async () => {
       const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
@@ -206,13 +255,45 @@ export function AdminPage() {
 
   const activateBootstrap = async () => {
     await runAdminAction(async () => {
-      const bootstrap = httpsCallable(functions, 'bootstrapAdmin');
-      await bootstrap();
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error(t('Sessão expirada. Entre novamente.'));
-      const token = await currentUser.getIdTokenResult(true);
-      setIsAdmin(token.claims.admin === true);
-      if (token.claims.admin !== true) throw new Error(t('A função foi chamada, mas a claim administrativa não foi atualizada.'));
+
+      // Try Cloud Function first (Blaze plan); if unavailable, fall back to Spark-plan Firestore bootstrap
+      let claimedViaFunction = false;
+      try {
+        const bootstrap = httpsCallable(functions, 'bootstrapAdmin');
+        await bootstrap();
+        const token = await currentUser.getIdTokenResult(true);
+        claimedViaFunction = token.claims.admin === true;
+      } catch {
+        // Cloud Function may not be deployed on Spark plan; fall back to Firestore bootstrap
+      }
+
+      if (!claimedViaFunction) {
+        const bootstrapRef = doc(db, '_metadata', 'adminBootstrap');
+        const marker = await getDoc(bootstrapRef);
+        if (marker.exists() && marker.data().adminUid !== currentUser.uid) {
+          throw new Error(t('Já existe um administrador inicial configurado neste projeto Firebase.'));
+        }
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'admins', currentUser.uid), {
+          email: currentUser.email ?? '',
+          createdAt: serverTimestamp(),
+        });
+        if (!marker.exists()) {
+          batch.set(bootstrapRef, {
+            adminUid: currentUser.uid,
+            activatedAt: serverTimestamp(),
+          });
+        }
+        await batch.commit();
+      }
+
+      const adminStatus = await checkIsAdmin(currentUser);
+      setIsAdmin(adminStatus);
+      if (!adminStatus) {
+        throw new Error(t('Não foi possível ativar o acesso. Verifique as regras do Firestore (firestore.rules).'));
+      }
     }, t('Acesso administrativo ativado.'));
   };
 
@@ -344,25 +425,98 @@ export function AdminPage() {
     return <AdminShell><p className="rounded-xl bg-white p-6 text-sm text-stone-600">{t('Verificando sessão...')}</p></AdminShell>;
   }
 
+  const handleSaveCustomFirebase = (event: FormEvent) => {
+    event.preventDefault();
+    if (!fbApiKey.trim() || !fbAuthDomain.trim() || !fbProjectId.trim() || !fbAppId.trim()) {
+      setErrorMessage(t('Preencha apiKey, authDomain, projectId e appId para conectar outro projeto Firebase.'));
+      return;
+    }
+    saveCustomFirebaseConfig({
+      apiKey: fbApiKey.trim(),
+      authDomain: fbAuthDomain.trim(),
+      projectId: fbProjectId.trim(),
+      appId: fbAppId.trim(),
+    });
+  };
+
   if (!user) {
     return (
       <AdminShell>
-        <section className="mx-auto max-w-lg rounded-3xl border border-orange-100 bg-white p-6 shadow-sm sm:p-8">
-          <KeyRound className="mb-4 h-8 w-8 text-red-800" />
-          <h2 className="text-2xl font-black">{t('Acesso administrativo')}</h2>
-          <p className="mt-2 text-sm leading-6 text-stone-600">{t('Entre com uma conta do Firebase Authentication. O primeiro administrador precisa usar o e-mail configurado no deploy e confirmado.')}</p>
-          <form onSubmit={login} className="mt-6 space-y-4">
+        <section className="mx-auto max-w-lg rounded-3xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <KeyRound className="h-8 w-8 text-red-800" />
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 px-3 py-1 font-mono text-[11px] font-semibold text-stone-600">
+              <Database className="h-3 w-3 text-emerald-600" />
+              {activeFirebaseProjectId || 'firebase'}
+            </span>
+          </div>
+          <h2 className="text-2xl font-black text-stone-900">{t('Acesso administrativo')}</h2>
+          <p className="mt-2 text-sm leading-6 text-stone-600">
+            {t('Entre com sua conta Google ou e-mail/senha do Firebase Authentication para gerenciar questões e materiais.')}
+          </p>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void loginWithGoogle()}
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-bold text-stone-800 shadow-sm transition hover:bg-stone-50 disabled:opacity-50"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.5 3.8-5.4 3.8-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.7 3.3 14.6 2.4 12 2.4 6.7 2.4 2.4 6.7 2.4 12s4.3 9.6 9.6 9.6c5.5 0 9.2-3.9 9.2-9.4 0-.6-.1-1.1-.2-1.6H12z" />
+            </svg>
+            {t('Entrar com Google')}
+          </button>
+
+          <div className="my-5 flex items-center gap-3 text-xs text-stone-400">
+            <span className="h-px flex-1 bg-stone-200" />
+            <span>{t('ou use e-mail e senha')}</span>
+            <span className="h-px flex-1 bg-stone-200" />
+          </div>
+
+          <form onSubmit={login} className="space-y-4">
             <label className="block text-sm font-semibold">{t('E-mail')}
-              <input required type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1.5 w-full rounded-xl border border-orange-200 px-3 py-2.5 font-normal outline-none focus:border-orange-500" />
+              <input required type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1.5 w-full rounded-xl border border-stone-200 px-3 py-2.5 font-normal outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100" />
             </label>
             <label className="block text-sm font-semibold">{t('Senha')}
-              <input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1.5 w-full rounded-xl border border-orange-200 px-3 py-2.5 font-normal outline-none focus:border-orange-500" />
+              <input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1.5 w-full rounded-xl border border-stone-200 px-3 py-2.5 font-normal outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100" />
             </label>
-            <div className="flex flex-wrap gap-2">
-              <button disabled={busy} className="rounded-xl bg-red-800 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{t('Entrar')}</button>
-              <button type="button" disabled={busy || !email || password.length < 6} onClick={() => void register()} className="rounded-xl border border-orange-200 px-4 py-2.5 text-sm font-bold text-red-800 disabled:opacity-50">{t('Criar conta')}</button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                <button disabled={busy} className="rounded-xl bg-red-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-900 disabled:opacity-50">{t('Entrar')}</button>
+                <button type="button" disabled={busy || !email || password.length < 6} onClick={() => void register()} className="rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-bold text-red-800 hover:bg-stone-50 disabled:opacity-50">{t('Criar conta')}</button>
+              </div>
+              <button type="button" disabled={busy} onClick={() => void resetPassword()} className="text-xs font-semibold text-red-800 hover:underline">
+                {t('Esqueci minha senha')}
+              </button>
             </div>
           </form>
+
+          <div className="mt-6 border-t border-stone-100 pt-4">
+            <button
+              type="button"
+              onClick={() => setShowFirebaseConfig((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-500 hover:text-stone-800"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              {isCustomFirebaseConfig ? t('Projeto Firebase personalizado ativo (alterar)') : t('Conectar outro projeto Firebase')}
+            </button>
+
+            {showFirebaseConfig && (
+              <form onSubmit={handleSaveCustomFirebase} className="mt-3 space-y-2.5 rounded-xl border border-stone-200 bg-stone-50 p-3.5 text-xs">
+                <p className="text-stone-600">{t('Cole os dados do seu app Web do Firebase Console (Configurações do Projeto):')}</p>
+                <input value={fbProjectId} onChange={(e) => setFbProjectId(e.target.value)} placeholder="projectId (ex: meu-projeto-so)" className="w-full rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 font-mono" />
+                <input value={fbApiKey} onChange={(e) => setFbApiKey(e.target.value)} placeholder="apiKey" className="w-full rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 font-mono" />
+                <input value={fbAuthDomain} onChange={(e) => setFbAuthDomain(e.target.value)} placeholder="authDomain (ex: meu-projeto.firebaseapp.com)" className="w-full rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 font-mono" />
+                <input value={fbAppId} onChange={(e) => setFbAppId(e.target.value)} placeholder="appId" className="w-full rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 font-mono" />
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button type="submit" className="rounded-lg bg-stone-900 px-3 py-1.5 font-bold text-white">{t('Salvar e recarregar')}</button>
+                  {isCustomFirebaseConfig && (
+                    <button type="button" onClick={clearCustomFirebaseConfig} className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 font-semibold text-stone-700">{t('Restaurar padrão')}</button>
+                  )}
+                </div>
+              </form>
+            )}
+          </div>
         </section>
         <Feedback message={message} error={errorMessage} />
       </AdminShell>
@@ -372,16 +526,16 @@ export function AdminPage() {
   if (!isAdmin) {
     return (
       <AdminShell>
-        <section className="mx-auto max-w-2xl rounded-3xl border border-orange-100 bg-white p-6 shadow-sm sm:p-8">
+        <section className="mx-auto max-w-2xl rounded-3xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
           <ShieldCheck className="mb-4 h-8 w-8 text-orange-700" />
-          <h2 className="text-2xl font-black">{t('Acesso administrativo')}</h2>
-          <p className="mt-2 text-sm text-stone-600">{t('Conta conectada:')} <strong>{user.email}</strong></p>
-          <p className="mt-2 text-sm leading-6 text-stone-600">{t('Esta conta ainda não tem permissão de administrador. Para o primeiro acesso, o e-mail deve corresponder à configuração BOOTSTRAP_ADMIN_EMAIL e estar verificado.')}</p>
-          {!user.emailVerified && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{t('Confirme o endereço de e-mail no link enviado pelo Firebase antes de continuar.')}</p>}
+          <h2 className="text-2xl font-black">{t('Ativar acesso administrativo')}</h2>
+          <p className="mt-2 text-sm text-stone-600">{t('Conta conectada:')} <strong>{user.email}</strong> <span className="font-mono text-xs text-stone-400">({user.uid})</span></p>
+          <p className="mt-2 text-sm leading-6 text-stone-600">{t('Esta conta ainda não tem permissão de administrador. Clique abaixo para ativar o primeiro administrador no projeto Firebase conectado.')}</p>
+          {!user.emailVerified && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{t('Se criou a conta por e-mail/senha, confirme o link enviado pelo Firebase antes de continuar (contas Google já vêm verificadas).')}</p>}
           <div className="mt-5 flex flex-wrap gap-2">
             <button onClick={() => void activateBootstrap()} disabled={busy || !user.emailVerified} className="rounded-xl bg-red-800 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{t('Ativar primeiro administrador')}</button>
-            {!user.emailVerified && <button onClick={() => void resendVerification()} disabled={busy} className="rounded-xl border border-orange-200 px-4 py-2.5 text-sm font-bold text-stone-700">{t('Reenviar e-mail de verificação')}</button>}
-            <button onClick={() => void logout()} disabled={busy} className="rounded-xl border border-orange-200 px-4 py-2.5 text-sm font-bold text-stone-700">{t('Sair')}</button>
+            {!user.emailVerified && <button onClick={() => void resendVerification()} disabled={busy} className="rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-bold text-stone-700">{t('Reenviar e-mail de verificação')}</button>}
+            <button onClick={() => void logout()} disabled={busy} className="rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-bold text-stone-700">{t('Sair')}</button>
           </div>
         </section>
         <Feedback message={message} error={errorMessage} />
@@ -391,9 +545,23 @@ export function AdminPage() {
 
   return (
     <AdminShell>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-100 bg-white p-4">
-        <p className="text-sm text-stone-600"><ShieldCheck className="mr-2 inline h-4 w-4 text-green-700" />{t('Administrador conectado:')} <strong>{user.email}</strong></p>
-        <button onClick={() => void logout()} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-orange-200 px-3 py-2 text-sm font-semibold text-stone-700"><LogOut className="h-4 w-4" />{t('Sair')}</button>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-white p-4">
+        <div>
+          <p className="text-sm text-stone-600"><ShieldCheck className="mr-2 inline h-4 w-4 text-green-700" />{t('Administrador conectado:')} <strong>{user.email}</strong></p>
+          <p className="mt-0.5 font-mono text-[11px] text-stone-400">Firebase: {activeFirebaseProjectId}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void runAdminAction(ensureInitialContent, t('Banco inicial sincronizado com o Firestore.'))}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-xs font-bold text-stone-700 hover:bg-stone-100"
+          >
+            <Database className="h-3.5 w-3.5 text-red-800" />
+            {t('Sincronizar banco inicial')}
+          </button>
+          <button onClick={() => void logout()} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-stone-200 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"><LogOut className="h-4 w-4" />{t('Sair')}</button>
+        </div>
       </div>
       <Feedback message={message} error={errorMessage || (resourcesError ? resourcesError.message : questionsError?.message ?? '')} />
 

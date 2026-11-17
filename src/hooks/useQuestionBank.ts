@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { db, isFirebaseConfigured } from '../config/firebase';
 import {
   ENADE_QUESTIONS,
   SUBJECT_QUESTIONS,
@@ -67,26 +67,31 @@ export function useQuestionBank() {
   const query = useQuery({
     queryKey: ['question-bank'],
     queryFn: async (): Promise<QuestionDocument[]> => {
-      if (!import.meta.env.VITE_FIREBASE_API_KEY) return INITIAL_QUESTION_DOCUMENTS;
-      const snapshot = await getDocs(collection(db, 'questions'));
-      if (snapshot.empty && !(await getDoc(doc(db, '_metadata', 'adminSeed'))).exists()) {
+      if (!isFirebaseConfigured) return INITIAL_QUESTION_DOCUMENTS;
+      try {
+        const snapshot = await getDocs(collection(db, 'questions'));
+        if (snapshot.empty && !(await getDoc(doc(db, '_metadata', 'adminSeed'))).exists()) {
+          return INITIAL_QUESTION_DOCUMENTS;
+        }
+        return snapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        } as QuestionDocument));
+      } catch (error) {
+        console.warn('Falling back to local question bank:', error);
         return INITIAL_QUESTION_DOCUMENTS;
       }
-      return snapshot.docs.map((document) => ({
-        id: document.id,
-        ...document.data(),
-      } as QuestionDocument));
     },
   });
 
-  const localizedQuestions = (query.data ?? (!import.meta.env.VITE_FIREBASE_API_KEY ? INITIAL_QUESTION_DOCUMENTS : [])).map((document) =>
+  const localizedQuestions = (query.data ?? INITIAL_QUESTION_DOCUMENTS).map((document) =>
     toQuizQuestion(document, language),
   );
 
   return {
     ...query,
     questions: localizedQuestions,
-    questionDocuments: query.data ?? (!import.meta.env.VITE_FIREBASE_API_KEY ? INITIAL_QUESTION_DOCUMENTS : []),
+    questionDocuments: query.data ?? INITIAL_QUESTION_DOCUMENTS,
   };
 }
 
