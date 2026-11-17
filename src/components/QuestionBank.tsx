@@ -48,6 +48,7 @@ export function QuestionBank() {
     duration: '90 min',
     instructions: DEFAULT_INSTRUCTIONS,
     versionCount: 2,
+    totalCopies: 4,
     shuffleQuestions: true,
     shuffleAlternatives: true,
     includeBubbleSheet: true,
@@ -306,23 +307,53 @@ export function QuestionBank() {
 
           {/* Versions & Shuffling */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label htmlFor="version-count" className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-stone-600">
-                <Shuffle className="h-3.5 w-3.5 text-red-800" />
-                {t('Cadernos diferentes')}
-              </label>
-              <select
-                id="version-count"
-                value={config.versionCount}
-                onChange={(e) => updateConfig('versionCount', Number(e.target.value))}
-                className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-xs font-bold text-stone-800 outline-none focus:border-red-400"
-              >
-                {[1, 2, 3, 4, 5, 6].map((n) => (
-                  <option key={n} value={n}>
-                    {n} {n === 1 ? t('caderno (A)') : t(`cadernos (A–${String.fromCharCode(64 + n)})`)}
-                  </option>
-                ))}
-              </select>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label htmlFor="total-copies" className="block text-[10px] font-bold uppercase tracking-wider text-stone-600">
+                  {t('Qtd. total de provas')}
+                </label>
+                <input
+                  id="total-copies"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={config.totalCopies}
+                  onChange={(e) => {
+                    const parsed = Number.parseInt(e.target.value, 10);
+                    updateConfig('totalCopies', Number.isNaN(parsed) ? 1 : Math.max(1, Math.min(100, parsed)));
+                  }}
+                  className="mt-1 w-full rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 font-mono text-xs font-bold text-stone-800 outline-none focus:border-red-400 focus:bg-white"
+                />
+              </div>
+              <div>
+                <label htmlFor="version-count" className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-stone-600">
+                  <Shuffle className="h-3 w-3 text-red-800" />
+                  {t('Tipos (Cadernos)')}
+                </label>
+                <select
+                  id="version-count"
+                  value={config.versionCount}
+                  onChange={(e) => updateConfig('versionCount', Number(e.target.value))}
+                  className="mt-1 w-full rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-xs font-bold text-stone-800 outline-none focus:border-red-400 focus:bg-white"
+                >
+                  {[1, 2, 3, 4, 5, 6].map((n) => (
+                    <option key={n} value={n}>
+                      {n} {n === 1 ? t('tipo (A)') : t(`tipos (A–${String.fromCharCode(64 + n)})`)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-orange-200/70 bg-orange-50/70 px-3 py-2 text-[11px] text-stone-700">
+              <span className="font-bold text-red-900">{t('PDF único')}: </span>
+              <span className="font-mono font-semibold">
+                {Array.from({ length: Math.min(config.totalCopies, 8) }, (_, i) =>
+                  String.fromCharCode(65 + (i % config.versionCount)),
+                ).join(' · ')}
+                {config.totalCopies > 8 ? ` · ... (${config.totalCopies}x)` : ''}
+              </span>
+              {config.includeAnswerKey && <span className="font-semibold text-stone-600"> + {t('Gabarito')}</span>}
             </div>
 
             <label className="flex cursor-pointer items-center justify-between rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2 text-xs font-semibold text-stone-700">

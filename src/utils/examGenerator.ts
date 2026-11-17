@@ -19,6 +19,7 @@ export interface ExamConfig {
   duration: string;
   instructions: string;
   versionCount: number;
+  totalCopies: number;
   shuffleQuestions: boolean;
   shuffleAlternatives: boolean;
   includeBubbleSheet: boolean;

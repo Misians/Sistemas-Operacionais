@@ -16,7 +16,16 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
 
   if (versions.length === 0 || selectedQuestions.length === 0) return null;
 
-  const isVisibleOnScreen = (target: 'key' | number) => activeTab === 'all' || activeTab === target;
+  const totalCopies = Math.max(1, Math.min(100, config.totalCopies || versions.length));
+  const bookletCopies = Array.from({ length: totalCopies }, (_, copyIndex) => ({
+    copyNumber: copyIndex + 1,
+    version: versions[copyIndex % versions.length],
+  }));
+
+  const isCopyVisibleOnScreen = (copyIndex: number, versionIndex: number) =>
+    activeTab === 'all' || (typeof activeTab === 'number' && copyIndex === versionIndex && activeTab === versionIndex);
+
+  const isKeyVisibleOnScreen = activeTab === 'all' || activeTab === 'key';
 
   return (
     <section className="print-exam-container mt-10">
@@ -64,7 +73,7 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
                 : 'text-stone-500 hover:bg-stone-100 hover:text-stone-800'
             }`}
           >
-            {t('Ver tudo')}
+            {t('Lote completo')} ({totalCopies})
           </button>
         </div>
 
@@ -78,15 +87,15 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
         </button>
       </div>
 
-      {/* Exam Booklets (Caderno A, B, C...) */}
-      {versions.map((version, vIdx) => {
-        const hasNextSheet = vIdx < versions.length - 1 || config.includeAnswerKey;
+      {/* Exam Booklets (All copies alternating A, B, A, B... in one single PDF) */}
+      {bookletCopies.map(({ copyNumber, version }, copyIdx) => {
+        const hasNextSheet = copyIdx < bookletCopies.length - 1 || config.includeAnswerKey;
         return (
           <article
-            key={version.examCode}
+            key={`${version.examCode}-copy-${copyNumber}`}
             className={`print-sheet mx-auto mb-8 max-w-[210mm] rounded-2xl border border-stone-200 bg-white p-6 text-stone-950 shadow-sm sm:p-10 ${
               hasNextSheet ? 'print-page-break-after' : ''
-            } ${isVisibleOnScreen(version.index) ? 'block' : 'hidden print:block'}`}
+            } ${isCopyVisibleOnScreen(copyIdx, version.index) ? 'block' : 'hidden print:block'}`}
           >
             <table className="w-full border-collapse">
               <thead className="hidden print:table-header-group">
@@ -242,7 +251,9 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
             {/* Footer */}
             <footer className="mt-6 flex items-center justify-between border-t border-stone-300 pt-2 text-[10px] text-stone-500">
               <span>SO Docente Hub · {config.discipline || t('Sistemas Operacionais')}</span>
-              <span className="font-mono">{version.examCode}</span>
+              <span className="font-mono">
+                {version.examCode} · {t('Prova')} {String(copyNumber).padStart(2, '0')}/{String(totalCopies).padStart(2, '0')}
+              </span>
             </footer>
                   </td>
                 </tr>
@@ -259,7 +270,7 @@ export function ExamPrintSheet({ versions, selectedQuestions, config }: ExamPrin
       {config.includeAnswerKey && (
         <article
           className={`print-sheet mx-auto mb-8 max-w-[210mm] rounded-2xl border border-stone-200 bg-white p-6 text-stone-950 shadow-sm sm:p-10 ${
-            isVisibleOnScreen('key') ? 'block' : 'hidden print:block'
+            isKeyVisibleOnScreen ? 'block' : 'hidden print:block'
           }`}
         >
           <table className="w-full border-collapse">
