@@ -1,13 +1,14 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
 
 html {
   scroll-behavior: smooth;
 }
 
 body {
-  @apply bg-[#faf8f6] text-stone-900 antialiased;
+  background-color: #faf8f6;
+  color: #1c1917;
+  -webkit-font-smoothing: antialiased;
 }
 
 @page {
