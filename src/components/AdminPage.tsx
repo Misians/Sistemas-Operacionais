@@ -12,7 +12,7 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, Database, KeyRound, LogOut, Pencil, Plus, Settings, ShieldCheck, Trash2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Database, FileJson, Image as ImageIcon, ImagePlus, KeyRound, LogOut, Pencil, Plus, Search, Settings, ShieldCheck, Trash2, X } from 'lucide-react';
 import {
   activeFirebaseProjectId,
   auth,
@@ -28,8 +28,9 @@ import { TOPIC_LABELS } from '../data/questions';
 import { INITIAL_QUESTION_DOCUMENTS, useQuestionBank } from '../hooks/useQuestionBank';
 import { useResources } from '../hooks/useResources';
 import { useLanguage } from '../i18n/LanguageContext';
-import type { QuestionDocument, QuestionLanguage, QuestionTopic, QuestionTranslation } from '../types/question';
+import type { QuestionDocument, QuestionLanguage, QuestionTopic, QuestionTranslation, QuestionType } from '../types/question';
 import type { OSModule, OSResource, ResourceCategory } from '../types/repository';
+import { parseQuestionsFromJson, readImageAsDataUrl, SAMPLE_QUESTIONS_JSON } from '../utils/questionImport';
 
 type AdminSection = 'resources' | 'questions';
 type ResourceForm = Omit<OSResource, 'id' | 'createdAt' | 'externalUrl'> & {
@@ -58,12 +59,6 @@ const MODULE_LABELS: Record<OSModule, string> = {
   sistemas_arquivos: 'Sistemas de Arquivos e E/S',
 };
 const EMPTY_TRANSLATION: QuestionTranslation = { prompt: '', alternatives: ['', '', '', ''], explanation: '' };
-const EMPTY_TRANSLATIONS: Record<QuestionLanguage, QuestionTranslation> = {
-  pt: { ...EMPTY_TRANSLATION, alternatives: [...EMPTY_TRANSLATION.alternatives] },
-  en: { ...EMPTY_TRANSLATION, alternatives: [...EMPTY_TRANSLATION.alternatives] },
-  es: { ...EMPTY_TRANSLATION, alternatives: [...EMPTY_TRANSLATION.alternatives] },
-  zh: { ...EMPTY_TRANSLATION, alternatives: [...EMPTY_TRANSLATION.alternatives] },
-};
 
 const EMPTY_RESOURCE: ResourceForm = {
   title: '',
@@ -101,10 +96,26 @@ function listFromLines(value: string): string[] {
   return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
 }
 
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (val !== undefined) {
+        result[key] = stripUndefined(val);
+      }
+    }
+    return result as T;
+  }
+  return value;
+}
+
 function withoutId<T extends { id?: string }>(value: T): Omit<T, 'id'> {
   const data = { ...value };
   delete data.id;
-  return data;
+  return stripUndefined(data);
 }
 
 export function AdminPage() {
@@ -123,6 +134,12 @@ export function AdminPage() {
   const [question, setQuestion] = useState<QuestionDocument | null>(null);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const [questionLanguage, setQuestionLanguage] = useState<QuestionLanguage>('pt');
+  const [questionSearch, setQuestionSearch] = useState('');
+  const [questionFilterTopic, setQuestionFilterTopic] = useState<'todos' | QuestionTopic>('todos');
+  const [questionFilterType, setQuestionFilterType] = useState<'todos' | QuestionType>('todos');
+  const [questionPage, setQuestionPage] = useState(1);
+  const [showJsonImport, setShowJsonImport] = useState(false);
+  const [jsonImportText, setJsonImportText] = useState('');
   const [roleEmail, setRoleEmail] = useState('');
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -341,7 +358,7 @@ export function AdminPage() {
 
     await runAdminAction(async () => {
       await ensureInitialContent();
-      await setDoc(doc(db, 'resources', id), data);
+      await setDoc(doc(db, 'resources', id), stripUndefined(data));
       setResource(null);
       setEditingResourceId(null);
     }, t('Material salvo.'));
@@ -350,46 +367,119 @@ export function AdminPage() {
   const saveQuestion = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!question) return;
-    const languages: QuestionLanguage[] = ['pt', 'en', 'es', 'zh'];
-    const alternativeCounts = languages.map((language) =>
-      question.translations[language].alternatives.map((item) => item.trim()).filter(Boolean).length,
-    );
-    if (languages.some((language) =>
-      !question.translations[language].prompt.trim() ||
-      !question.translations[language].explanation.trim() ||
-      alternativeCounts[languages.indexOf(language)] < 2,
-    )) {
-      setErrorMessage(t('Preencha enunciado, pelo menos duas alternativas e explicação nos quatro idiomas.'));
-      return;
-    }
-    if (new Set(alternativeCounts).size !== 1 || question.answer < 0 || question.answer >= alternativeCounts[0]) {
-      setErrorMessage(t('As quatro traduções devem ter o mesmo número de alternativas e a resposta correta deve existir.'));
+
+    const qType: QuestionType = question.type ?? 'objetiva';
+    const pt = question.translations.pt;
+    const ptPrompt = pt.prompt.trim();
+    const ptExplanation = pt.explanation.trim();
+    const ptAlts = pt.alternatives.map((item) => item.trim()).filter(Boolean);
+
+    if (!ptPrompt) {
+      setErrorMessage(t('Preencha o enunciado em português.'));
       return;
     }
 
+    if (qType === 'objetiva') {
+      if (ptAlts.length < 2) {
+        setErrorMessage(t('Questões objetivas precisam de pelo menos 2 alternativas em português.'));
+        return;
+      }
+      if (question.answer < 0 || question.answer >= ptAlts.length) {
+        setErrorMessage(t('Selecione uma alternativa correta válida.'));
+        return;
+      }
+    } else if (!question.expectedAnswer?.trim() && !pt.expectedAnswer?.trim()) {
+      setErrorMessage(t('Informe a resposta esperada (espelho de correção) para a questão discursiva.'));
+      return;
+    }
+
+    const expectedAnswer = (pt.expectedAnswer ?? question.expectedAnswer ?? '').trim();
+    const languages: QuestionLanguage[] = ['pt', 'en', 'es', 'zh'];
+
+    const translations = Object.fromEntries(
+      languages.map((language) => {
+        const current = question.translations[language];
+        const currentAlts = current.alternatives.map((item) => item.trim()).filter(Boolean);
+        return [
+          language,
+          {
+            prompt: current.prompt.trim() || ptPrompt,
+            explanation: current.explanation.trim() || ptExplanation,
+            alternatives: qType === 'discursiva' ? [] : (currentAlts.length >= 2 ? currentAlts : ptAlts),
+            ...(qType === 'discursiva' && expectedAnswer
+              ? { expectedAnswer: current.expectedAnswer?.trim() || expectedAnswer }
+              : {}),
+          },
+        ];
+      }),
+    ) as Record<QuestionLanguage, QuestionTranslation>;
+
     const id = editingQuestionId ?? doc(collection(db, 'questions')).id;
     const existing = questionDocuments.find((item) => item.id === id);
-    const data = {
+    const data = stripUndefined({
+      type: qType,
       topic: question.topic,
       source: question.source,
-      answer: Number(question.answer),
-      translations: Object.fromEntries(languages.map((language) => [
-        language,
-        {
-          prompt: question.translations[language].prompt.trim(),
-          explanation: question.translations[language].explanation.trim(),
-          alternatives: question.translations[language].alternatives.map((item) => item.trim()).filter(Boolean),
-        },
-      ])) as Record<QuestionLanguage, QuestionTranslation>,
+      answer: qType === 'discursiva' ? -1 : Number(question.answer),
+      imageUrl: question.imageUrl?.trim() || undefined,
+      imageAlt: question.imageAlt?.trim() || undefined,
+      expectedAnswer: qType === 'discursiva' ? expectedAnswer : undefined,
+      expectedLines: qType === 'discursiva' ? Math.min(20, Math.max(2, Number(question.expectedLines) || 6)) : undefined,
+      translations,
       createdAt: existing?.createdAt ?? serverTimestamp(),
       updatedAt: serverTimestamp(),
-    };
+    });
+
     await runAdminAction(async () => {
       await ensureInitialContent();
       await setDoc(doc(db, 'questions', id), data);
       setQuestion(null);
       setEditingQuestionId(null);
     }, t('Questão salva.'));
+  };
+
+  const importJsonToFirestore = async () => {
+    const parsed = parseQuestionsFromJson(jsonImportText);
+    if (parsed.valid.length === 0) {
+      setErrorMessage(parsed.errors[0] || t('Nenhuma questão válida encontrada no JSON.'));
+      return;
+    }
+
+    await runAdminAction(async () => {
+      await ensureInitialContent();
+      const batch = writeBatch(db);
+      parsed.valid.forEach((item) => {
+        const ref = doc(collection(db, 'questions'));
+        const translation: QuestionTranslation = {
+          prompt: item.prompt,
+          alternatives: item.alternatives,
+          explanation: item.explanation,
+          ...(item.expectedAnswer ? { expectedAnswer: item.expectedAnswer } : {}),
+        };
+        const docData = stripUndefined({
+          type: item.type,
+          topic: item.topic,
+          source: item.source,
+          answer: item.answer,
+          imageUrl: item.imageUrl,
+          imageAlt: item.imageAlt,
+          expectedAnswer: item.expectedAnswer,
+          expectedLines: item.expectedLines,
+          translations: {
+            pt: translation,
+            en: translation,
+            es: translation,
+            zh: translation,
+          },
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        batch.set(ref, docData);
+      });
+      await batch.commit();
+      setJsonImportText('');
+      setShowJsonImport(false);
+    }, `${parsed.valid.length} questão(ões) importada(s) para o Firestore.`);
   };
 
   const deleteResource = (item: OSResource) => {
@@ -642,55 +732,32 @@ export function AdminPage() {
           )}
         </section>
       ) : (
-        <section className="rounded-2xl border border-orange-100 bg-white p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div><h2 className="text-xl font-black">{t('Gerenciar questões')}</h2><p className="text-sm text-stone-500">{t('Cada questão exige enunciado, alternativas e explicação em português, inglês, espanhol e mandarim.')}</p></div>
-            <button onClick={() => { setQuestion({ id: '', topic: 'processos', source: 'assunto', answer: 0, translations: { ...EMPTY_TRANSLATIONS }, createdAt: Date.now(), updatedAt: Date.now() }); setEditingQuestionId(null); setQuestionLanguage('pt'); }} className="inline-flex items-center gap-2 rounded-xl bg-red-800 px-4 py-2.5 text-sm font-bold text-white"><Plus className="h-4 w-4" />{t('Nova questão')}</button>
-          </div>
-          {questionsLoading ? <p className="py-5 text-sm text-stone-500">{t('Carregando questões...')}</p> : (
-            <div className="divide-y divide-orange-100">
-              {questionDocuments.map((item) => (
-                <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                  <div><p className="font-semibold">{item.translations.pt.prompt}</p><p className="text-xs text-stone-500">{t(TOPIC_LABELS[item.topic])} · {t(item.source === 'enade' ? 'Simulado estilo ENADE' : 'Por assunto')}</p></div>
-                  <div className="flex gap-2">
-                    <button aria-label={t('Editar')} onClick={() => { setQuestion(item); setEditingQuestionId(item.id); setQuestionLanguage('pt'); }} className="rounded-lg border border-orange-200 p-2 text-stone-700"><Pencil className="h-4 w-4" /></button>
-                    <button aria-label={t('Excluir')} onClick={() => deleteQuestion(item)} className="rounded-lg border border-red-200 p-2 text-red-700"><Trash2 className="h-4 w-4" /></button>
-                  </div>
-                </div>
-              ))}
-              {!questionDocuments.length && <p className="py-5 text-sm text-stone-500">{t('Ainda não há questões cadastradas.')}</p>}
-            </div>
-          )}
-          {question && (
-            <form onSubmit={saveQuestion} className="mt-5 space-y-4 rounded-xl bg-orange-50/70 p-4">
-              <h3 className="text-lg font-bold">{t(editingQuestionId ? 'Editar questão' : 'Nova questão')}</h3>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <label className="text-sm font-semibold">{t('Assunto')}
-                  <select value={question.topic} onChange={(event) => setQuestion({ ...question, topic: event.target.value as QuestionTopic })} className="admin-input">{TOPICS.map((value) => <option key={value} value={value}>{t(TOPIC_LABELS[value])}</option>)}</select>
-                </label>
-                <label className="text-sm font-semibold">{t('Origem')}
-                  <select value={question.source} onChange={(event) => setQuestion({ ...question, source: event.target.value as QuestionDocument['source'] })} className="admin-input">
-                    <option value="assunto">{t('Por assunto')}</option><option value="enade">{t('Simulado estilo ENADE')}</option>
-                  </select>
-                </label>
-                <label className="text-sm font-semibold">{t('Resposta correta (número da alternativa)')}
-                  <input required min={1} type="number" value={question.answer + 1} onChange={(event) => setQuestion({ ...question, answer: Number(event.target.value) - 1 })} className="admin-input" />
-                </label>
-              </div>
-              <div className="flex flex-wrap gap-2" role="tablist" aria-label={t('Idioma da questão')}>
-                {LANGUAGES.map((language) => <button type="button" role="tab" aria-selected={questionLanguage === language} key={language} onClick={() => setQuestionLanguage(language)} className={`rounded-lg px-3 py-2 text-sm font-bold ${questionLanguage === language ? 'bg-red-800 text-white' : 'bg-white text-stone-700'}`}>{LANGUAGE_NAMES[language]}</button>)}
-              </div>
-              <QuestionTranslationForm
-                translation={question.translations[questionLanguage]}
-                onChange={(translation) => setQuestion({ ...question, translations: { ...question.translations, [questionLanguage]: translation } })}
-              />
-              <div className="flex gap-2">
-                <button disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-red-800 px-4 py-2 text-sm font-bold text-white"><Check className="h-4 w-4" />{t('Salvar questão')}</button>
-                <button type="button" onClick={() => setQuestion(null)} className="rounded-lg border border-orange-200 px-4 py-2 text-sm font-bold">{t('Cancelar')}</button>
-              </div>
-            </form>
-          )}
-        </section>
+        <AdminQuestionsSection
+          questionDocuments={questionDocuments}
+          questionsLoading={questionsLoading}
+          question={question}
+          setQuestion={setQuestion}
+          editingQuestionId={editingQuestionId}
+          setEditingQuestionId={setEditingQuestionId}
+          questionLanguage={questionLanguage}
+          setQuestionLanguage={setQuestionLanguage}
+          questionSearch={questionSearch}
+          setQuestionSearch={setQuestionSearch}
+          questionFilterTopic={questionFilterTopic}
+          setQuestionFilterTopic={setQuestionFilterTopic}
+          questionFilterType={questionFilterType}
+          setQuestionFilterType={setQuestionFilterType}
+          questionPage={questionPage}
+          setQuestionPage={setQuestionPage}
+          showJsonImport={showJsonImport}
+          setShowJsonImport={setShowJsonImport}
+          jsonImportText={jsonImportText}
+          setJsonImportText={setJsonImportText}
+          onImportJson={importJsonToFirestore}
+          onSaveQuestion={saveQuestion}
+          onDeleteQuestion={deleteQuestion}
+          busy={busy}
+        />
       )}
 
       <section className="mt-6 rounded-2xl border border-orange-100 bg-white p-5">
@@ -706,11 +773,495 @@ export function AdminPage() {
   );
 }
 
+function AdminQuestionsSection({
+  questionDocuments,
+  questionsLoading,
+  question,
+  setQuestion,
+  editingQuestionId,
+  setEditingQuestionId,
+  questionLanguage,
+  setQuestionLanguage,
+  questionSearch,
+  setQuestionSearch,
+  questionFilterTopic,
+  setQuestionFilterTopic,
+  questionFilterType,
+  setQuestionFilterType,
+  questionPage,
+  setQuestionPage,
+  showJsonImport,
+  setShowJsonImport,
+  jsonImportText,
+  setJsonImportText,
+  onImportJson,
+  onSaveQuestion,
+  onDeleteQuestion,
+  busy,
+}: {
+  questionDocuments: QuestionDocument[];
+  questionsLoading: boolean;
+  question: QuestionDocument | null;
+  setQuestion: (q: QuestionDocument | null) => void;
+  editingQuestionId: string | null;
+  setEditingQuestionId: (id: string | null) => void;
+  questionLanguage: QuestionLanguage;
+  setQuestionLanguage: (lang: QuestionLanguage) => void;
+  questionSearch: string;
+  setQuestionSearch: (v: string) => void;
+  questionFilterTopic: 'todos' | QuestionTopic;
+  setQuestionFilterTopic: (v: 'todos' | QuestionTopic) => void;
+  questionFilterType: 'todos' | QuestionType;
+  setQuestionFilterType: (v: 'todos' | QuestionType) => void;
+  questionPage: number;
+  setQuestionPage: (v: number) => void;
+  showJsonImport: boolean;
+  setShowJsonImport: (v: boolean) => void;
+  jsonImportText: string;
+  setJsonImportText: (v: string) => void;
+  onImportJson: () => Promise<void>;
+  onSaveQuestion: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onDeleteQuestion: (item: QuestionDocument) => void;
+  busy: boolean;
+}) {
+  const { t } = useLanguage();
+  const pageSize = 6;
+  const query = questionSearch.trim().toLowerCase();
+  const filtered = questionDocuments.filter((item) => {
+    const qType = item.type ?? 'objetiva';
+    if (questionFilterTopic !== 'todos' && item.topic !== questionFilterTopic) return false;
+    if (questionFilterType !== 'todos' && qType !== questionFilterType) return false;
+    if (!query) return true;
+    return item.translations.pt.prompt.toLowerCase().includes(query);
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(questionPage, totalPages);
+  const paginated = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  const openNewQuestion = () => {
+    setShowJsonImport(false);
+    setQuestion({
+      id: '',
+      type: 'objetiva',
+      topic: 'processos',
+      source: 'assunto',
+      answer: 0,
+      expectedLines: 6,
+      translations: {
+        pt: { ...EMPTY_TRANSLATION, alternatives: [...EMPTY_TRANSLATION.alternatives] },
+        en: { ...EMPTY_TRANSLATION, alternatives: [...EMPTY_TRANSLATION.alternatives] },
+        es: { ...EMPTY_TRANSLATION, alternatives: [...EMPTY_TRANSLATION.alternatives] },
+        zh: { ...EMPTY_TRANSLATION, alternatives: [...EMPTY_TRANSLATION.alternatives] },
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    setEditingQuestionId(null);
+    setQuestionLanguage('pt');
+  };
+
+  const handleImageUpload = async (file?: File) => {
+    if (!file || !question) return;
+    const dataUrl = await readImageAsDataUrl(file);
+    setQuestion({ ...question, imageUrl: dataUrl, imageAlt: question.imageAlt || file.name.replace(/\.[^.]+$/, '') });
+  };
+
+  return (
+    <section className="space-y-6 rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 pb-4">
+        <div>
+          <h2 className="text-xl font-black text-stone-900">{t('Gerenciar questões')}</h2>
+          <p className="mt-0.5 text-sm text-stone-500">
+            {t('Cadastre questões objetivas ou discursivas com espelho e imagem, ou importe em lote via JSON. Traduções vazias usam automaticamente o português.')}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setQuestion(null);
+              setShowJsonImport(!showJsonImport);
+            }}
+            className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-xs font-bold text-stone-700 transition hover:border-red-300 hover:text-red-800"
+          >
+            <FileJson className="h-4 w-4 text-red-700" /> {t('Importar JSON')}
+          </button>
+          <button
+            type="button"
+            onClick={openNewQuestion}
+            className="inline-flex items-center gap-2 rounded-xl bg-red-800 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-900"
+          >
+            <Plus className="h-4 w-4" /> {t('Nova questão')}
+          </button>
+        </div>
+      </div>
+
+      {showJsonImport && (
+        <div className="space-y-3 rounded-2xl border border-stone-200 bg-stone-50/80 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-base font-extrabold text-stone-900">{t('Importar questões para o Firestore (JSON)')}</h3>
+            <button
+              type="button"
+              onClick={() => setJsonImportText(SAMPLE_QUESTIONS_JSON)}
+              className="text-xs font-bold text-red-800 hover:underline"
+            >
+              {t('Carregar exemplo JSON')}
+            </button>
+          </div>
+          <input
+            type="file"
+            accept=".json,application/json"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (file) setJsonImportText(await file.text());
+            }}
+            className="block w-full text-xs text-stone-600 file:mr-3 file:rounded-lg file:border-0 file:bg-red-800 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white hover:file:bg-red-900"
+          />
+          <textarea
+            rows={6}
+            value={jsonImportText}
+            onChange={(e) => setJsonImportText(e.target.value)}
+            placeholder='[{"type":"discursiva","topic":"memoria","prompt":"...","expectedAnswer":"..."}]'
+            className="w-full rounded-xl border border-stone-200 bg-stone-950 p-3 font-mono text-xs text-stone-100 outline-none focus:border-red-500"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy || !jsonImportText.trim()}
+              onClick={() => void onImportJson()}
+              className="rounded-xl bg-red-800 px-4 py-2 text-xs font-bold text-white hover:bg-red-900 disabled:opacity-50"
+            >
+              {t('Importar para Firestore')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowJsonImport(false)}
+              className="rounded-xl border border-stone-200 bg-white px-4 py-2 text-xs font-bold text-stone-700"
+            >
+              {t('Cancelar')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {question && (
+        <form onSubmit={onSaveQuestion} className="space-y-5 rounded-2xl border border-red-200/70 bg-stone-50/70 p-5">
+          <div className="flex items-center justify-between border-b border-stone-200 pb-3">
+            <h3 className="text-lg font-extrabold text-stone-900">
+              {t(editingQuestionId ? 'Editar questão' : 'Nova questão')}
+            </h3>
+            <button
+              type="button"
+              onClick={() => setQuestion(null)}
+              aria-label={t('Fechar')}
+              className="rounded-lg p-1 text-stone-400 hover:bg-stone-200 hover:text-stone-700"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 rounded-xl bg-stone-200/70 p-1 sm:max-w-md">
+            {(['objetiva', 'discursiva'] as const).map((qType) => (
+              <button
+                key={qType}
+                type="button"
+                onClick={() => setQuestion({ ...question, type: qType })}
+                className={`rounded-lg px-3 py-2 text-xs font-bold transition ${
+                  (question.type ?? 'objetiva') === qType
+                    ? 'bg-white text-red-800 shadow-sm'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                {qType === 'objetiva' ? t('Objetiva (Múltipla escolha)') : t('Discursiva (Com espelho)')}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="text-xs font-bold uppercase tracking-wide text-stone-600">
+              {t('Assunto')}
+              <select
+                value={question.topic}
+                onChange={(event) => setQuestion({ ...question, topic: event.target.value as QuestionTopic })}
+                className="admin-input"
+              >
+                {TOPICS.map((value) => (
+                  <option key={value} value={value}>{t(TOPIC_LABELS[value])}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-bold uppercase tracking-wide text-stone-600">
+              {t('Origem')}
+              <select
+                value={question.source}
+                onChange={(event) => setQuestion({ ...question, source: event.target.value as QuestionDocument['source'] })}
+                className="admin-input"
+              >
+                <option value="assunto">{t('Por assunto')}</option>
+                <option value="enade">{t('Simulado estilo ENADE')}</option>
+                <option value="custom">{t('Autoral / Docente')}</option>
+              </select>
+            </label>
+            {(question.type ?? 'objetiva') === 'objetiva' ? (
+              <label className="text-xs font-bold uppercase tracking-wide text-stone-600">
+                {t('Alternativa correta (1 a 4)')}
+                <input
+                  required
+                  min={1}
+                  max={question.translations.pt.alternatives.length || 5}
+                  type="number"
+                  value={question.answer + 1}
+                  onChange={(event) => setQuestion({ ...question, answer: Number(event.target.value) - 1 })}
+                  className="admin-input"
+                />
+              </label>
+            ) : (
+              <label className="text-xs font-bold uppercase tracking-wide text-stone-600">
+                {t('Linhas na prova')}
+                <input
+                  min={2}
+                  max={20}
+                  type="number"
+                  value={question.expectedLines ?? 6}
+                  onChange={(event) => setQuestion({ ...question, expectedLines: Number(event.target.value) })}
+                  className="admin-input"
+                />
+              </label>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-stone-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-stone-600">{t('Imagem da questão (opcional)')}</span>
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-semibold text-stone-700 hover:border-red-300 hover:text-red-800">
+                <ImagePlus className="h-3.5 w-3.5" /> {t('Enviar imagem')}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => void handleImageUpload(e.target.files?.[0])}
+                  className="hidden"
+                />
+              </label>
+            </div>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <input
+                type="text"
+                placeholder={t('Ou cole a URL da imagem')}
+                value={question.imageUrl?.startsWith('data:') ? '' : (question.imageUrl ?? '')}
+                onChange={(e) => setQuestion({ ...question, imageUrl: e.target.value })}
+                className="rounded-xl border border-stone-200 px-3 py-2 text-xs outline-none focus:border-red-400"
+              />
+              <input
+                type="text"
+                placeholder={t('Descrição da imagem (alt)')}
+                value={question.imageAlt ?? ''}
+                onChange={(e) => setQuestion({ ...question, imageAlt: e.target.value })}
+                className="rounded-xl border border-stone-200 px-3 py-2 text-xs outline-none focus:border-red-400"
+              />
+            </div>
+            {question.imageUrl && (
+              <div className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-stone-200 bg-stone-50 p-2">
+                <img src={question.imageUrl} alt={question.imageAlt || 'Preview'} className="max-h-32 rounded object-contain" />
+                <button
+                  type="button"
+                  onClick={() => setQuestion({ ...question, imageUrl: undefined, imageAlt: undefined })}
+                  className="text-xs font-semibold text-red-700 hover:underline"
+                >
+                  {t('Remover')}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label={t('Idioma da questão')}>
+            {LANGUAGES.map((language) => (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={questionLanguage === language}
+                key={language}
+                onClick={() => setQuestionLanguage(language)}
+                className={`rounded-xl px-3.5 py-2 text-xs font-bold transition ${
+                  questionLanguage === language
+                    ? 'bg-red-800 text-white shadow-sm'
+                    : 'border border-stone-200 bg-white text-stone-700 hover:bg-stone-100'
+                }`}
+              >
+                {LANGUAGE_NAMES[language]} {language === 'pt' ? '*' : ''}
+              </button>
+            ))}
+          </div>
+
+          <QuestionTranslationForm
+            questionType={question.type ?? 'objetiva'}
+            isRequired={questionLanguage === 'pt'}
+            translation={question.translations[questionLanguage]}
+            expectedAnswer={question.translations[questionLanguage].expectedAnswer ?? question.expectedAnswer ?? ''}
+            onExpectedAnswerChange={(val) =>
+              setQuestion({
+                ...question,
+                ...(questionLanguage === 'pt' ? { expectedAnswer: val } : {}),
+                translations: {
+                  ...question.translations,
+                  [questionLanguage]: { ...question.translations[questionLanguage], expectedAnswer: val },
+                },
+              })
+            }
+            onChange={(translation) =>
+              setQuestion({
+                ...question,
+                translations: { ...question.translations, [questionLanguage]: translation },
+              })
+            }
+          />
+
+          <div className="flex gap-2 border-t border-stone-200 pt-4">
+            <button disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-red-800 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-red-900">
+              <Check className="h-4 w-4" /> {t('Salvar questão')}
+            </button>
+            <button type="button" onClick={() => setQuestion(null)} className="rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-bold text-stone-700">
+              {t('Cancelar')}
+            </button>
+          </div>
+        </form>
+      )}
+
+      <div className="grid gap-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3 sm:grid-cols-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+          <input
+            type="search"
+            value={questionSearch}
+            onChange={(e) => {
+              setQuestionSearch(e.target.value);
+              setQuestionPage(1);
+            }}
+            placeholder={t('Buscar questão...')}
+            className="w-full rounded-xl border border-stone-200 bg-white py-2 pl-9 pr-3 text-xs outline-none focus:border-red-400"
+          />
+        </div>
+        <select
+          value={questionFilterTopic}
+          onChange={(e) => {
+            setQuestionFilterTopic(e.target.value as 'todos' | QuestionTopic);
+            setQuestionPage(1);
+          }}
+          className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-700 outline-none focus:border-red-400"
+        >
+          <option value="todos">{t('Todos os assuntos')}</option>
+          {TOPICS.map((value) => (
+            <option key={value} value={value}>{t(TOPIC_LABELS[value])}</option>
+          ))}
+        </select>
+        <select
+          value={questionFilterType}
+          onChange={(e) => {
+            setQuestionFilterType(e.target.value as 'todos' | QuestionType);
+            setQuestionPage(1);
+          }}
+          className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-700 outline-none focus:border-red-400"
+        >
+          <option value="todos">{t('Todos os tipos')}</option>
+          <option value="objetiva">{t('Objetivas')}</option>
+          <option value="discursiva">{t('Discursivas')}</option>
+        </select>
+      </div>
+
+      {questionsLoading ? (
+        <p className="py-5 text-sm text-stone-500">{t('Carregando questões...')}</p>
+      ) : (
+        <div className="divide-y divide-stone-100">
+          {paginated.map((item) => {
+            const qType = item.type ?? 'objetiva';
+            return (
+              <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3.5">
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                    <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-900">
+                      {t(TOPIC_LABELS[item.topic])}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      qType === 'discursiva' ? 'bg-amber-100 text-amber-900' : 'bg-stone-100 text-stone-700'
+                    }`}>
+                      {qType === 'discursiva' ? t('Discursiva') : t('Objetiva')}
+                    </span>
+                    {item.imageUrl && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-800">
+                        <ImageIcon className="h-3 w-3" /> {t('Imagem')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm font-semibold text-stone-900">{item.translations.pt.prompt}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    aria-label={t('Editar')}
+                    onClick={() => {
+                      setShowJsonImport(false);
+                      setQuestion(item);
+                      setEditingQuestionId(item.id);
+                      setQuestionLanguage('pt');
+                    }}
+                    className="rounded-xl border border-stone-200 p-2 text-stone-700 hover:bg-stone-50"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    aria-label={t('Excluir')}
+                    onClick={() => onDeleteQuestion(item)}
+                    className="rounded-xl border border-red-200 p-2 text-red-700 hover:bg-red-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {!paginated.length && <p className="py-6 text-center text-sm text-stone-500">{t('Nenhuma questão encontrada.')}</p>}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border-t border-stone-100 pt-4">
+          <button
+            type="button"
+            disabled={safePage === 1}
+            onClick={() => setQuestionPage(Math.max(1, safePage - 1))}
+            className="inline-flex items-center gap-1 rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-bold text-stone-700 disabled:opacity-40"
+          >
+            <ChevronLeft className="h-4 w-4" /> {t('Anterior')}
+          </button>
+          <span className="text-xs font-semibold text-stone-500">
+            {safePage} / {totalPages} ({filtered.length} {t('questões')})
+          </span>
+          <button
+            type="button"
+            disabled={safePage === totalPages}
+            onClick={() => setQuestionPage(Math.min(totalPages, safePage + 1))}
+            className="inline-flex items-center gap-1 rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-bold text-stone-700 disabled:opacity-40"
+          >
+            {t('Próxima')} <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function QuestionTranslationForm({
+  questionType,
+  isRequired,
   translation,
+  expectedAnswer,
+  onExpectedAnswerChange,
   onChange,
 }: {
+  questionType: QuestionType;
+  isRequired: boolean;
   translation: QuestionTranslation;
+  expectedAnswer: string;
+  onExpectedAnswerChange: (value: string) => void;
   onChange: (translation: QuestionTranslation) => void;
 }) {
   const { t } = useLanguage();
@@ -722,18 +1273,54 @@ function QuestionTranslationForm({
 
   return (
     <div className="grid gap-4">
-      <label className="text-sm font-semibold">{t('Enunciado')}
-        <textarea required rows={3} value={translation.prompt} onChange={(event) => onChange({ ...translation, prompt: event.target.value })} className="admin-input" />
+      <label className="text-sm font-semibold text-stone-800">
+        {t('Enunciado')} {isRequired ? '*' : ''}
+        <textarea
+          required={isRequired}
+          rows={3}
+          value={translation.prompt}
+          onChange={(event) => onChange({ ...translation, prompt: event.target.value })}
+          className="admin-input"
+        />
       </label>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {translation.alternatives.map((alternative, index) => (
-          <label key={index} className="text-sm font-semibold">{t('Alternativa')} {index + 1}
-            <textarea required rows={2} value={alternative} onChange={(event) => updateAlternative(index, event.target.value)} className="admin-input" />
-          </label>
-        ))}
-      </div>
-      <label className="text-sm font-semibold">{t('Explicação')}
-        <textarea required rows={3} value={translation.explanation} onChange={(event) => onChange({ ...translation, explanation: event.target.value })} className="admin-input" />
+
+      {questionType === 'objetiva' ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {translation.alternatives.map((alternative, index) => (
+            <label key={index} className="text-sm font-semibold text-stone-800">
+              {t('Alternativa')} {index + 1} {isRequired && index < 2 ? '*' : ''}
+              <textarea
+                required={isRequired && index < 2}
+                rows={2}
+                value={alternative}
+                onChange={(event) => updateAlternative(index, event.target.value)}
+                className="admin-input"
+              />
+            </label>
+          ))}
+        </div>
+      ) : (
+        <label className="text-sm font-semibold text-amber-950">
+          {t('Resposta esperada / Espelho de correção')} {isRequired ? '*' : ''}
+          <textarea
+            required={isRequired}
+            rows={4}
+            value={expectedAnswer}
+            onChange={(event) => onExpectedAnswerChange(event.target.value)}
+            placeholder={t('Resposta que aparecerá no espelho do professor...')}
+            className="admin-input"
+          />
+        </label>
+      )}
+
+      <label className="text-sm font-semibold text-stone-800">
+        {t('Explicação / comentário (opcional)')}
+        <textarea
+          rows={2}
+          value={translation.explanation}
+          onChange={(event) => onChange({ ...translation, explanation: event.target.value })}
+          className="admin-input"
+        />
       </label>
     </div>
   );

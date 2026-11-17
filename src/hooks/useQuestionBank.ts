@@ -28,7 +28,9 @@ function createInitialQuestion(
     prompt: messages[question.prompt] ?? question.prompt,
     alternatives: question.alternatives.map((alternative) => messages[alternative] ?? alternative),
     explanation: messages[question.explanation] ?? question.explanation,
-    expectedAnswer: question.expectedAnswer ? (messages[question.expectedAnswer] ?? question.expectedAnswer) : undefined,
+    ...(question.expectedAnswer
+      ? { expectedAnswer: messages[question.expectedAnswer] ?? question.expectedAnswer }
+      : {}),
   });
   const now = Date.now();
 
@@ -38,16 +40,16 @@ function createInitialQuestion(
     topic: question.topic,
     source,
     answer: question.answer,
-    imageUrl: question.imageUrl,
-    imageAlt: question.imageAlt,
-    expectedAnswer: question.expectedAnswer,
-    expectedLines: question.expectedLines,
+    ...(question.imageUrl ? { imageUrl: question.imageUrl } : {}),
+    ...(question.imageAlt ? { imageAlt: question.imageAlt } : {}),
+    ...(question.expectedAnswer ? { expectedAnswer: question.expectedAnswer } : {}),
+    ...(typeof question.expectedLines === 'number' ? { expectedLines: question.expectedLines } : {}),
     translations: {
       pt: {
         prompt: question.prompt,
         alternatives: question.alternatives,
         explanation: question.explanation,
-        expectedAnswer: question.expectedAnswer,
+        ...(question.expectedAnswer ? { expectedAnswer: question.expectedAnswer } : {}),
       },
       en: translate(englishQuestionMessages),
       es: translate(spanishQuestionMessages),
