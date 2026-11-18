@@ -508,6 +508,22 @@ export function AdminPage() {
     }, t('Questão removida.'));
   };
 
+  const deleteQuestions = async (ids: string[]): Promise<boolean> => {
+    if (ids.length === 0) return false;
+    if (!window.confirm(t('Excluir {count} questão(ões) selecionada(s)?', { count: ids.length }))) return false;
+    let deleted = false;
+    await runAdminAction(async () => {
+      await ensureInitialContent();
+      for (let i = 0; i < ids.length; i += 450) {
+        const batch = writeBatch(db);
+        ids.slice(i, i + 450).forEach((id) => batch.delete(doc(db, 'questions', id)));
+        await batch.commit();
+      }
+      deleted = true;
+    }, t('{count} questão(ões) removida(s).', { count: ids.length }));
+    return deleted;
+  };
+
   const updateAdminAccess = async (enabled: boolean) => {
     const activeUser = user;
     await runAdminAction(async () => {
@@ -769,6 +785,7 @@ export function AdminPage() {
           onImportJson={importJsonToFirestore}
           onSaveQuestion={saveQuestion}
           onDeleteQuestion={deleteQuestion}
+          onDeleteQuestions={deleteQuestions}
           busy={busy}
         />
       )}
@@ -810,6 +827,7 @@ function AdminQuestionsSection({
   onImportJson,
   onSaveQuestion,
   onDeleteQuestion,
+  onDeleteQuestions,
   busy,
 }: {
   questionDocuments: QuestionDocument[];
@@ -835,9 +853,11 @@ function AdminQuestionsSection({
   onImportJson: () => Promise<void>;
   onSaveQuestion: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onDeleteQuestion: (item: QuestionDocument) => void;
+  onDeleteQuestions: (ids: string[]) => Promise<boolean>;
   busy: boolean;
 }) {
   const { t } = useLanguage();
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const pageSize = 6;
   const query = questionSearch.trim().toLowerCase();
   const filtered = questionDocuments.filter((item) => {
@@ -1181,14 +1201,67 @@ function AdminQuestionsSection({
         </select>
       </div>
 
+      {!questionsLoading && filtered.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200 bg-stone-50/70 px-3.5 py-2.5">
+          <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-stone-700">
+            <input
+              type="checkbox"
+              checked={filtered.length > 0 && filtered.every((item) => selectedIds.includes(item.id))}
+              onChange={(event) => {
+                if (event.target.checked) {
+                  setSelectedIds(Array.from(new Set([...selectedIds, ...filtered.map((item) => item.id)])));
+                } else {
+                  const filteredSet = new Set(filtered.map((item) => item.id));
+                  setSelectedIds((prev) => prev.filter((id) => !filteredSet.has(id)));
+                }
+              }}
+              className="h-4 w-4 rounded border-stone-300 text-red-800 focus:ring-red-500"
+            />
+            {t('Selecionar todas')} ({filtered.length})
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedIds.length > 0 && (
+              <span className="text-xs font-semibold text-stone-600">
+                {t('{count} questão(ões) selecionada(s).', { count: selectedIds.length })}
+              </span>
+            )}
+            <button
+              type="button"
+              disabled={busy || selectedIds.length === 0}
+              onClick={() => {
+                const validIds = selectedIds.filter((id) => questionDocuments.some((q) => q.id === id));
+                void onDeleteQuestions(validIds).then((ok) => {
+                  if (ok) setSelectedIds([]);
+                });
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-red-700 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> {t('Excluir selecionadas')}
+            </button>
+          </div>
+        </div>
+      )}
+
       {questionsLoading ? (
         <p className="py-5 text-sm text-stone-500">{t('Carregando questões...')}</p>
       ) : (
         <div className="divide-y divide-stone-100">
           {paginated.map((item) => {
             const qType = item.type ?? 'objetiva';
+            const isSelected = selectedIds.includes(item.id);
             return (
               <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3.5">
+                <input
+                  type="checkbox"
+                  aria-label={t('Selecionar questão')}
+                  checked={isSelected}
+                  onChange={() =>
+                    setSelectedIds((prev) =>
+                      prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id],
+                    )
+                  }
+                  className="h-4 w-4 shrink-0 rounded border-stone-300 text-red-800 focus:ring-red-500"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="mb-1 flex flex-wrap items-center gap-1.5">
                     <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-900">
